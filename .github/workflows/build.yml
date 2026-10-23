@@ -20,6 +20,7 @@ jobs:
       ksu_sha: ${{ steps. meta. outputs. ksu_sha }}
       ksu_count: ${{ steps. meta. outputs. ksu_count }}
       bakasu_ver: ${{ steps. meta. outputs. bakasu_ver }}
+      kver: ${{ steps. meta. outputs. kver }}
       kernel_string: ${{ steps. meta. outputs. kernel_string }}
       image: ${{ steps. img. outputs. image }}
       zip: ${{ steps. pkg. outputs. zip }}
@@ -47,12 +48,14 @@ jobs:
             if [ -n "$BANNER" ]; then BAKASU_VER="$BANNER"; fi
             if [ -z "$BAKASU_VER" ]; then BAKASU_VER="r${KSU_COUNT}"; fi
           fi
-          KERNEL_STRING="tissot-4.9.337|BakaSU-SUSFS|${BAKASU_VER}|g${SHA8}"
+          KVER="$(sed -n 's/^VERSION = //p' Makefile).$(sed -n 's/^PATCHLEVEL = //p' Makefile).$(sed -n 's/^SUBLEVEL = //p' Makefile)"
+          KERNEL_STRING="tissot-${KVER}|BakaSU-SUSFS|${BAKASU_VER}|g${SHA8}"
           {
             echo "sha8=$SHA8"
             echo "ksu_sha=$KSU_SHA"
             echo "ksu_count=$KSU_COUNT"
             echo "bakasu_ver=$BAKASU_VER"
+            echo "kver=$KVER"
             echo "kernel_string=$KERNEL_STRING"
           } >> "$GITHUB_OUTPUT"
           echo "kernel.string=$KERNEL_STRING"
@@ -313,7 +316,7 @@ jobs:
 
             | | |
             |---|---|
-            | Kernel | Linux 4.9.337 (stable, EOL) |
+            | Kernel | Linux ${{ needs. build. outputs. kver }} (stable, EOL) |
             | Tree | LineageOS/CAF msm8953 (lineage-21) |
             | Root | BakaSU (KernelSU fork, sync-susfs) @ ${{ needs. build. outputs. ksu_sha }} (${{ needs. build. outputs. bakasu_ver }}) |
             | SUSFS | inline hooks, susfs-compatible |

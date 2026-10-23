@@ -123,3 +123,11 @@ kernel/configs/android-*.cfg
 #Ignoring Android.bp link file
 #
 Android.bp
+
+# CI build artifacts (downloaded toolchain + kernel build output)
+/tc/
+/out/
+/*.zip
+
+# GitHub Actions workflows (dot-dir, but must be tracked)
+!.github/

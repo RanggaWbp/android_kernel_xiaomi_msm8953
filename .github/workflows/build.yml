@@ -1,0 +1,326 @@
+name: tissot-BakaSU-SUSFS
+
+on:
+  push:
+    branches: [BakaSU-susfs]
+  workflow_dispatch:
+
+permissions:
+  contents: write # softprops/action-gh-release publishes the release
+
+concurrency:
+  group: ${{ github. workflow }}-${{ github. ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    outputs:
+      sha8: ${{ steps. meta. outputs. sha8 }}
+      ksu_sha: ${{ steps. meta. outputs. ksu_sha }}
+      ksu_count: ${{ steps. meta. outputs. ksu_count }}
+      bakasu_ver: ${{ steps. meta. outputs. bakasu_ver }}
+      kernel_string: ${{ steps. meta. outputs. kernel_string }}
+      image: ${{ steps. img. outputs. image }}
+      zip: ${{ steps. pkg. outputs. zip }}
+    steps:
+      - name: "Checkout with submodules"
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive # pulls KernelSU (BakaSU) + anykernel after the merge
+          fetch-depth: 0 # full history: needed for the KernelSU commit count in the version string
+
+      - name: Build metadata
+        id: meta
+        run: |
+          set -eo pipefail
+          SHA8="$(git rev-parse --short=8 HEAD)"
+          # BakaSU lives in the KernelSU submodule (merged by the kernel agent) - tolerate its absence
+          KSU_SHA="unknown"
+          KSU_COUNT="0"
+          BAKASU_VER="unknown"
+          if [ -d KernelSU ] && [ -n "$(ls -A KernelSU 2>/dev/null)" ]; then
+            KSU_SHA="$(git -C KernelSU rev-parse --short=8 HEAD 2>/dev/null || echo unknown)"
+            KSU_COUNT="$(git -C KernelSU rev-list --count HEAD 2>/dev/null || echo 0)"
+            if BAKASU_VER="$(git -C KernelSU describe --tags --always 2>/dev/null)"; then :; else BAKASU_VER=""; fi
+            BANNER="$(grep -rhoE 'BakaSU[- ]?v?[0-9][0-9.]+' KernelSU --include='*.c' --include='*.h' --include='Kbuild' --include='Makefile' 2>/dev/null | head -n1 || true)"
+            if [ -n "$BANNER" ]; then BAKASU_VER="$BANNER"; fi
+            if [ -z "$BAKASU_VER" ]; then BAKASU_VER="r${KSU_COUNT}"; fi
+          fi
+          KERNEL_STRING="tissot-4.9.337|BakaSU-SUSFS|${BAKASU_VER}|g${SHA8}"
+          {
+            echo "sha8=$SHA8"
+            echo "ksu_sha=$KSU_SHA"
+            echo "ksu_count=$KSU_COUNT"
+            echo "bakasu_ver=$BAKASU_VER"
+            echo "kernel_string=$KERNEL_STRING"
+          } >> "$GITHUB_OUTPUT"
+          echo "kernel.string=$KERNEL_STRING"
+
+      - name: Fetch toolchains (primary + fallback mirrors)
+        run: |
+          set -eo pipefail
+          mkdir -p tc
+          fetch() { # fetch <dest.tar.gz> <url>...
+            dest="$1"; shift
+            for url in "$@"; do
+              echo ":: group::fetch $url"
+              if curl -fL --retry 3 --retry-delay 5 --connect-timeout 30 -o "$dest.part" "$url" \
+                && [ -s "$dest.part" ] \
+                && [ "$(head -c 2 "$dest.part" | od -An -tx1 | tr -d ' \n')" = "1f8b" ]; then
+                mv "$dest.part" "$dest"
+                echo "fetched $(basename "$dest")"
+                echo ":: endgroup::"
+                return 0
+              fi
+              echo ":: warning::mirror failed: $url"
+              rm -f "$dest.part"
+              echo ":: endgroup::"
+            done
+            echo ":: error::every mirror failed for $dest"
+            return 1
+          }
+          stage() { # stage <tarball> <dest-prefix> <binary-name>
+            tarball="$1"; dest="$2"; binname="$3"
+            tmp="$(mktemp -d)"
+            tar -xf "$tarball" -C "$tmp"
+            found="$(find "$tmp" \( -type f -o -type l \) -name "$binname" -print -quit)"
+            if [ -z "$found" ]; then
+              echo ":: error::$binname not found inside $tarball"
+              return 1
+            fi
+            prefix="$(dirname "$(dirname "$found")")"
+            rm -rf "$dest"
+            mkdir -p "$(dirname "$dest")"
+            mv "$prefix" "$dest"
+            chmod -R a+rx "$dest/bin" 2>/dev/null || true
+            rm -rf "$tmp"
+          }
+          # Clang 12 (AOSP r416183b via the LineageOS mirror) - fall back to AOSP master, then ZyC Clang 14
+          fetch tc/clang.tar.gz \
+            "https://api.github.com/repos/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b/tarball" \
+            "https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b/archive/refs/heads/lineage-20.0.tar.gz" \
+            "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/master.tar.gz" \
+            "https://github.com/ZyCromerZ/Clang/releases/download/14.0.6-20261022-release/Clang-14.0.6-20261022.tar.gz"
+          stage tc/clang.tar.gz tc/clang clang
+          # AOSP GCC 4.9 aarch64 binutils - LineageOS GitHub mirrors as fallback
+          fetch tc/gcc64.tar.gz \
+            "https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/+archive/master.tar.gz" \
+            "https://api.github.com/repos/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9/tarball" \
+            "https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9/archive/refs/heads/lineage-19.1.tar.gz"
+          stage tc/gcc64.tar.gz tc/gcc-64 aarch64-linux-android-gcc
+          # AOSP GCC 4.9 arm binutils - LineageOS GitHub mirrors as fallback
+          fetch tc/gcc32.tar.gz \
+            "https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9/+archive/master.tar.gz" \
+            "https://api.github.com/repos/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9/tarball" \
+            "https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9/archive/refs/heads/lineage-19.1.tar.gz"
+          stage tc/gcc32.tar.gz tc/gcc-32 arm-linux-androideabi-gcc
+
+      - name: Export toolchain PATH
+        run: |
+          set -eo pipefail
+          echo "$PWD/tc/clang/bin" >> "$GITHUB_PATH"
+          echo "$PWD/tc/gcc-64/bin" >> "$GITHUB_PATH"
+          echo "$PWD/tc/gcc-32/bin" >> "$GITHUB_PATH"
+          echo "$HOME/. local/bin" >> "$GITHUB_PATH"
+
+      - name: Assert toolchain binaries
+        run: |
+          set -eo pipefail
+          for b in tc/clang/bin/clang \
+            tc/gcc-64/bin/aarch64-linux-android-gcc tc/gcc-64/bin/aarch64-linux-android-ld \
+            tc/gcc-32/bin/arm-linux-androideabi-gcc tc/gcc-32/bin/arm-linux-androideabi-ld; do
+            if [ ! -x "$b" ]; then
+              echo ":: error::missing or non-executable toolchain binary: $b"
+              exit 1
+            fi
+          done
+          tc/clang/bin/clang --version | head -n 2
+          tc/gcc-64/bin/aarch64-linux-android-gcc --version | head -n 1
+          tc/gcc-32/bin/arm-linux-androideabi-gcc --version | head -n 1
+
+      # CC must be passed on every make command line: the top Makefile assigns CC with "=",
+      # so exporting CC from the environment is silently overridden.
+      - name: Configure defconfig
+        run: |
+          set -eo pipefail
+          export ARCH=arm64 SUBARCH=arm64 CLANG_TRIPLE=aarch64-linux-gnu-
+          make O=out CC="$PWD/tc/clang/bin/clang" \
+            CROSS_COMPILE="$PWD/tc/gcc-64/bin/aarch64-linux-android-" \
+            CROSS_COMPILE_ARM32="$PWD/tc/gcc-32/bin/arm-linux-androideabi-" \
+            tissot_defconfig
+
+      - name: Resolve boot image artifact
+        id: img
+        run: |
+          set -eo pipefail
+          # CONFIG_BUILD_ARM64_APPENDED_DTB_IMAGE=y -> the DTB-carrying image is Image.gz-dtb
+          if grep -q '^CONFIG_BUILD_ARM64_APPENDED_DTB_IMAGE=y' out/.config; then
+            IMAGE="$(sed -n 's/^CONFIG_BUILD_ARM64_APPENDED_KERNEL_IMAGE_NAME="\(.*\)"$/\1/p' out/.config)"
+            if [ -z "$IMAGE" ]; then IMAGE="Image.gz-dtb"; fi
+          else
+            IMAGE="$(sed -n 's/^CONFIG_ARM64_DEFAULT_IMAGE_NAME="\(.*\)"$/\1/p' out/.config)"
+            if [ -z "$IMAGE" ]; then IMAGE="Image"; fi
+          fi
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+          echo "boot image artifact: $IMAGE"
+
+      - name: Build DTBs
+        run: |
+          set -eo pipefail
+          export ARCH=arm64 SUBARCH=arm64 CLANG_TRIPLE=aarch64-linux-gnu-
+          make O=out CC="$PWD/tc/clang/bin/clang" \
+            CROSS_COMPILE="$PWD/tc/gcc-64/bin/aarch64-linux-android-" \
+            CROSS_COMPILE_ARM32="$PWD/tc/gcc-32/bin/arm-linux-androideabi-" \
+            -j"$(nproc)" dtbs
+
+      # arch/arm64/boot/Makefile expands DTB_OBJS with $(shell find) while parsing, so a single
+      # make invocation cannot see every DTB produced in the same run - hence two passes.
+      - name: Build boot image (pass 1 of 2)
+        env:
+          IMAGE_NAME: ${{ steps. img. outputs. image }}
+        run: |
+          set -eo pipefail
+          export ARCH=arm64 SUBARCH=arm64 CLANG_TRIPLE=aarch64-linux-gnu-
+          make O=out CC="$PWD/tc/clang/bin/clang" \
+            CROSS_COMPILE="$PWD/tc/gcc-64/bin/aarch64-linux-android-" \
+            CROSS_COMPILE_ARM32="$PWD/tc/gcc-32/bin/arm-linux-androideabi-" \
+            -j"$(nproc)" "$IMAGE_NAME"
+
+      - name: Build boot image (pass 2 of 2)
+        env:
+          IMAGE_NAME: ${{ steps. img. outputs. image }}
+        run: |
+          set -eo pipefail
+          export ARCH=arm64 SUBARCH=arm64 CLANG_TRIPLE=aarch64-linux-gnu-
+          make O=out CC="$PWD/tc/clang/bin/clang" \
+            CROSS_COMPILE="$PWD/tc/gcc-64/bin/aarch64-linux-android-" \
+            CROSS_COMPILE_ARM32="$PWD/tc/gcc-32/bin/arm-linux-androideabi-" \
+            -j"$(nproc)" "$IMAGE_NAME"
+
+      - name: KSU / SUSFS symbol gate (warn-only)
+        run: |
+          set -eo pipefail
+          if grep -q '^CONFIG_KSU=y' out/.config; then
+            echo ":: notice::CONFIG_KSU=y present"
+          else
+            echo ":: warning::CONFIG_KSU is not set yet (BakaSU submodule may still be merging) - not failing the build"
+          fi
+          if grep -q '^CONFIG_KSU_SUSFS=y' out/.config; then
+            echo ":: notice::CONFIG_KSU_SUSFS=y present"
+          else
+            echo ":: warning::CONFIG_KSU_SUSFS is not set yet - not failing the build"
+          fi
+
+      - name: Package AnyKernel3 zip
+        id: pkg
+        env:
+          IMAGE_NAME: ${{ steps. img. outputs. image }}
+          KERNEL_STRING: ${{ steps. meta. outputs. kernel_string }}
+        run: |
+          set -eo pipefail
+          if [ ! -f "out/arch/arm64/boot/$IMAGE_NAME" ]; then
+            echo ":: error::out/arch/arm64/boot/$IMAGE_NAME was not produced"
+            exit 1
+          fi
+          # install the tissot AnyKernel3 script over the submodule's stock one
+          cp ci/anykernel-tissot.sh anykernel/anykernel.sh
+          # kernel. string is derived from real sources (kernel + BakaSU submodule), never hardcoded
+          sed -i "s#^kernel. string=.*#kernel. string=${KERNEL_STRING}#" anykernel/anykernel.sh
+          if ! grep -qxF "kernel. string=${KERNEL_STRING}" anykernel/anykernel.sh; then
+            echo ":: error::kernel. string injection failed"
+            exit 1
+          fi
+          # AK3 shadow guard: drop VCS metadata and every other kernel image name AK3's
+          # fixed-order flash loop could pick INSTEAD of the DTB-carrying one (a bare Image
+          # shadows Image.gz-dtb -> DTBLESS boot -> black screen).
+          rm -rf anykernel/.git anykernel/.github \
+            Image Image-dtb Image.gz Image.bz2 Image.lzo Image.lzma Image.xz Image.lz4 kernel
+          cp "out/arch/arm64/boot/$IMAGE_NAME" anykernel/
+          ZIP="tissot-BakaSU-SUSFS-${GITHUB_SHA:0:8}.zip"
+          ( cd anykernel && zip -r9 "../$ZIP" . -x '.git*' > /dev/null )
+          if ! unzip -l "$ZIP" | grep -qE " ${IMAGE_NAME}$"; then
+            echo ":: error::$IMAGE_NAME is not inside $ZIP"
+            exit 1
+          fi
+          if unzip -l "$ZIP" | grep -qE " Image$"; then
+            echo ":: error::a bare Image is inside $ZIP and would shadow $IMAGE_NAME"
+            exit 1
+          fi
+          echo "zip=$ZIP" >> "$GITHUB_OUTPUT"
+          unzip -l "$ZIP" | tail -n 3
+
+      - name: Upload zip artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tissot-anykernel
+          path: "*.zip" # never out/ - it holds a multi-GB vmlinux
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    name: Release
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout for release metadata
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Resolve release metadata
+        id: rel
+        run: |
+          set -eo pipefail
+          SHA8="${GITHUB_SHA:0:8}"
+          AK3_SHA="$(git ls-tree HEAD anykernel | awk '{print $3}')"
+          KSU_SHA="$(git ls-tree HEAD KernelSU | awk '{print $3}')"
+          if [ -z "$KSU_SHA" ]; then KSU_SHA="not-merged-yet"; fi
+          TAG="tissot-$(date -u +%Y%m%d)-${SHA8}"
+          {
+            echo "tag=$TAG"
+            echo "ak3_sha=$AK3_SHA"
+            echo "ksu_sha=$KSU_SHA"
+            echo "sha8=$SHA8"
+          } >> "$GITHUB_OUTPUT"
+          echo "release tag: $TAG"
+
+      - name: Download zip artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: tissot-anykernel
+          path: artifacts
+
+      - name: Assert zip count
+        run: |
+          set -eo pipefail
+          n="$(find artifacts -maxdepth 1 -type f -name '*.zip' | wc -l)"
+          echo "zip count: $n"
+          if [ "$n" -ne 1 ]; then
+            echo ":: error::expected exactly 1 zip, found $n"
+            exit 1
+          fi
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps. rel. outputs. tag }}
+          name: tissot BakaSU+SUSFS ${{ steps. rel. outputs. sha8 }}
+          make_latest: true
+          files: artifacts/*.zip
+          body: |
+            ## tissot (Xiaomi Mi A1) — BakaSU + SUSFS
+
+            | | |
+            |---|---|
+            | Kernel | Linux 4.9.337 (stable, EOL) |
+            | Tree | LineageOS/CAF msm8953 (lineage-21) |
+            | Root | BakaSU (KernelSU fork, sync-susfs) @ ${{ needs. build. outputs. ksu_sha }} (${{ needs. build. outputs. bakasu_ver }}) |
+            | SUSFS | inline hooks, susfs-compatible |
+            | Boot image | `${{ needs. build. outputs. image }}` (DTB appended) |
+            | Flasher | AnyKernel3 @ ${{ steps. rel. outputs. ak3_sha }} |
+            | Commit | ${{ steps. rel. outputs. sha8 }} |
+
+            **Flash:** TWRP/OrangeFox or any kernel-flasher app → install the zip. Mi A1 is A-only, so there is no second slot to switch to.
+
+            Built by [this CI run](${{ github. server_url }}/${{ github. repository }}/actions/runs/${{ github. run_id }}).

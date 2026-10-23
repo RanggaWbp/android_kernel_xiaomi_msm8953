@@ -69,8 +69,9 @@ jobs:
             for url in "$@"; do
               echo ":: group::fetch $url"
               if curl -fL --retry 3 --retry-delay 5 --connect-timeout 30 -o "$dest.part" "$url" \
-                && [ -s "$dest.part" ] \
-                && [ "$(head -c 2 "$dest.part" | od -An -tx1 | tr -d ' \n')" = "1f8b" ]; then
+                && [ "$(stat -c%s "$dest.part" 2>/dev/null || echo 0)" -ge 1048576 ] \
+                && [ "$(head -c 2 "$dest.part" | od -An -tx1 | tr -d ' \n')" = "1f8b" ] \
+                && tar -tzf "$dest.part" >/dev/null 2>&1; then
                 mv "$dest.part" "$dest"
                 echo "fetched $(basename "$dest")"
                 echo ":: endgroup::"
@@ -108,16 +109,16 @@ jobs:
           stage tc/clang.tar.gz tc/clang clang
           # AOSP GCC 4.9 aarch64 binutils - LineageOS GitHub mirrors as fallback
           fetch tc/gcc64.tar.gz \
-            "https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/+archive/master.tar.gz" \
+            "https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/+archive/android12L-release.tar.gz" \
             "https://api.github.com/repos/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9/tarball" \
             "https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9/archive/refs/heads/lineage-19.1.tar.gz"
-          stage tc/gcc64.tar.gz tc/gcc-64 aarch64-linux-android-gcc
+          stage tc/gcc64.tar.gz tc/gcc-64 aarch64-linux-android-ld
           # AOSP GCC 4.9 arm binutils - LineageOS GitHub mirrors as fallback
           fetch tc/gcc32.tar.gz \
-            "https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9/+archive/master.tar.gz" \
+            "https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9/+archive/android12L-release.tar.gz" \
             "https://api.github.com/repos/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9/tarball" \
             "https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9/archive/refs/heads/lineage-19.1.tar.gz"
-          stage tc/gcc32.tar.gz tc/gcc-32 arm-linux-androideabi-gcc
+          stage tc/gcc32.tar.gz tc/gcc-32 arm-linux-androideabi-ld
 
       - name: Export toolchain PATH
         run: |
@@ -131,16 +132,16 @@ jobs:
         run: |
           set -eo pipefail
           for b in tc/clang/bin/clang \
-            tc/gcc-64/bin/aarch64-linux-android-gcc tc/gcc-64/bin/aarch64-linux-android-ld \
-            tc/gcc-32/bin/arm-linux-androideabi-gcc tc/gcc-32/bin/arm-linux-androideabi-ld; do
+            tc/gcc-64/bin/aarch64-linux-android-ld tc/gcc-64/bin/aarch64-linux-android-as tc/gcc-64/bin/aarch64-linux-android-nm \
+            tc/gcc-32/bin/arm-linux-androideabi-ld tc/gcc-32/bin/arm-linux-androideabi-as tc/gcc-32/bin/arm-linux-androideabi-nm; do
             if [ ! -x "$b" ]; then
               echo ":: error::missing or non-executable toolchain binary: $b"
               exit 1
             fi
           done
           tc/clang/bin/clang --version | head -n 2
-          tc/gcc-64/bin/aarch64-linux-android-gcc --version | head -n 1
-          tc/gcc-32/bin/arm-linux-androideabi-gcc --version | head -n 1
+          tc/gcc-64/bin/aarch64-linux-android-ld --version | head -n 1
+          tc/gcc-32/bin/arm-linux-androideabi-ld --version | head -n 1
 
       # CC must be passed on every make command line: the top Makefile assigns CC with "=",
       # so exporting CC from the environment is silently overridden.

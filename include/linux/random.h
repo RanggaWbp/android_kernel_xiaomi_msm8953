@@ -10,6 +10,24 @@
 
 #include <uapi/linux/random.h>
 
+/*
+ * On 64-bit architectures, protect against non-terminated C string overflows
+ * by zeroing out the first byte of the canary; this leaves 56 bits of entropy.
+ * (backport from mainline 4.20, commit "arm64: ascii armor the arm64 boot
+ * init stack canary" — the vendor tree uses CANARY_MASK in
+ * arch/arm64/include/asm/stackprotector.h and KernelSU's core/init.c but
+ * never carried the definition over)
+ */
+#ifdef CONFIG_64BIT
+# ifdef __LITTLE_ENDIAN
+#  define CANARY_MASK 0xffffffffffffff00UL
+# else /* big endian, 64 bits: */
+#  define CANARY_MASK 0x00ffffffffffffffUL
+# endif
+#else /* 32 bits: */
+# define CANARY_MASK 0xffffffffUL
+#endif
+
 struct notifier_block;
 
 void add_device_randomness(const void *buf, size_t len);

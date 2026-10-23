@@ -1,5 +1,5 @@
 [submodule "KernelSU"]
-	path = KernelSU
+	path = drivers/KernelSU
 	url = https://github.com/Baka-SU/BakaSU.git
 	branch = sync-susfs
 [submodule "anykernel"]

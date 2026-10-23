@@ -40,11 +40,11 @@ jobs:
           KSU_SHA="unknown"
           KSU_COUNT="0"
           BAKASU_VER="unknown"
-          if [ -d KernelSU ] && [ -n "$(ls -A KernelSU 2>/dev/null)" ]; then
-            KSU_SHA="$(git -C KernelSU rev-parse --short=8 HEAD 2>/dev/null || echo unknown)"
-            KSU_COUNT="$(git -C KernelSU rev-list --count HEAD 2>/dev/null || echo 0)"
-            if BAKASU_VER="$(git -C KernelSU describe --tags --always 2>/dev/null)"; then :; else BAKASU_VER=""; fi
-            BANNER="$(grep -rhoE 'BakaSU[- ]?v?[0-9][0-9.]+' KernelSU --include='*.c' --include='*.h' --include='Kbuild' --include='Makefile' 2>/dev/null | head -n1 || true)"
+          if [ -d drivers/KernelSU ] && [ -n "$(ls -A drivers/KernelSU 2>/dev/null)" ]; then
+            KSU_SHA="$(git -C drivers/KernelSU rev-parse --short=8 HEAD 2>/dev/null || echo unknown)"
+            KSU_COUNT="$(git -C drivers/KernelSU rev-list --count HEAD 2>/dev/null || echo 0)"
+            if BAKASU_VER="$(git -C drivers/KernelSU describe --tags --always 2>/dev/null)"; then :; else BAKASU_VER=""; fi
+            BANNER="$(grep -rhoE 'BakaSU[- ]?v?[0-9][0-9.]+' drivers/KernelSU --include='*.c' --include='*.h' --include='Kbuild' --include='Makefile' 2>/dev/null | head -n1 || true)"
             if [ -n "$BANNER" ]; then BAKASU_VER="$BANNER"; fi
             if [ -z "$BAKASU_VER" ]; then BAKASU_VER="r${KSU_COUNT}"; fi
           fi
@@ -278,7 +278,7 @@ jobs:
           set -eo pipefail
           SHA8="${GITHUB_SHA:0:8}"
           AK3_SHA="$(git ls-tree HEAD anykernel | awk '{print $3}')"
-          KSU_SHA="$(git ls-tree HEAD KernelSU | awk '{print $3}')"
+          KSU_SHA="$(git ls-tree HEAD drivers/KernelSU | awk '{print $3}')"
           if [ -z "$KSU_SHA" ]; then KSU_SHA="not-merged-yet"; fi
           TAG="tissot-$(date -u +%Y%m%d)-${SHA8}"
           {

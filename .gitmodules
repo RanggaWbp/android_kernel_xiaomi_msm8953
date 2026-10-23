@@ -2,3 +2,6 @@
 	path = KernelSU
 	url = https://github.com/Baka-SU/BakaSU.git
 	branch = sync-susfs
+[submodule "anykernel"]
+	path = anykernel
+	url = https://github.com/osm0sis/AnyKernel3.git

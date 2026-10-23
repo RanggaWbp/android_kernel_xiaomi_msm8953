@@ -3678,7 +3678,7 @@ static inline bool f2fs_may_encrypt(struct inode *inode)
 }
 
 static inline int block_unaligned_IO(struct inode *inode,
-				struct kiocb *iocb, struct iov_iter *iter)
+		struct kiocb *iocb, struct iov_iter *iter)
 {
 	unsigned int i_blkbits = READ_ONCE(inode->i_blkbits);
 	unsigned int blocksize_mask = (1 << i_blkbits) - 1;

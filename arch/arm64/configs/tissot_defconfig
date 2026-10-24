@@ -5110,3 +5110,5 @@ CONFIG_KSU_MULTI_MANAGER_SUPPORT=y
 # NoMount (VFS path redirection, runtime-inert until rules are pushed via keyring)
 CONFIG_NOMOUNT=y
 # CONFIG_NOMOUNT_DEFAULT_ON is not set
+# ntsync: NT synchronization primitives (/dev/ntsync) for Wine/Proton
+CONFIG_NTSYNC=y

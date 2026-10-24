@@ -70,9 +70,18 @@ static void __unhash_process(struct task_struct *p, bool group_dead)
 		detach_pid(p, PIDTYPE_SID);
 
 		list_del_rcu(&p->tasks);
-		list_del_init(&p->sibling);
 		__this_cpu_dec(process_counts);
 	}
+	/*
+	 * Unlink from the parent's children list unconditionally. Only
+	 * group leaders are linked there (copy_process), but a leader
+	 * that became a non-leader via de_thread() (mt-exec) is still
+	 * linked when it is reaped: skipping the unlink leaves the freed
+	 * task_struct reachable and a later waitpid() walks into it.
+	 * Non-leaders carry a self-linked sibling (INIT_LIST_HEAD in
+	 * copy_process), so this is a no-op for them.
+	 */
+	list_del_rcu(&p->sibling);
 	list_del_rcu(&p->thread_group);
 	list_del_rcu(&p->thread_node);
 }
@@ -137,6 +146,16 @@ static void __exit_signal(struct task_struct *tsk)
 	task_io_accounting_add(&sig->ioac, &tsk->ioac);
 	sig->sum_sched_runtime += tsk->se.sum_exec_runtime;
 	sig->nr_threads--;
+	/*
+	 * A non-leader still linked on a children list is an old leader
+	 * left behind by de_thread() (mt-exec): it must be unlinked here
+	 * or the freed task_struct stays reachable to a later waitpid().
+	 */
+	if (unlikely(!group_dead && !list_empty(&tsk->sibling)))
+		pr_warn_ratelimited("exit: %s[%d] not group leader but still "
+				    "on children list (ppid %d)\n",
+				    tsk->comm, task_pid_nr(tsk),
+				    task_pid_vnr(tsk->real_parent));
 	__unhash_process(tsk, group_dead);
 	write_sequnlock(&sig->stats_lock);
 

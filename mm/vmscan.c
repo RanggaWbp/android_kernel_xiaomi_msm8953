@@ -4599,6 +4599,26 @@ void lru_gen_init_memcg(struct mem_cgroup *memcg)
 	for_each_node(nid) {
 		struct lruvec *lruvec = get_lruvec(nid, memcg);
 
+		if (!lruvec)
+			continue;
+
+		/*
+		 * mem_cgroup_lruvec() only fills lruvec->pgdat when it is
+		 * handed the node's own lruvec, so a per-memcg lruvec keeps
+		 * whatever lruvec_init() left there (NULL). lruvec_pgdat()
+		 * dereferences it on every MGLRU reclaim path, and
+		 * lru_gen_change_state() spin-locks
+		 * lruvec_pgdat(lruvec)->lru_lock:
+		 *
+		 *   Kernel BUG at _raw_spin_lock_irq+0x18/0x48
+		 *   LR is at lru_gen_change_state+0x154/0xbe0
+		 *   fault at 0x1600 (NULL lruvec->pgdat + offset of lru_lock)
+		 *
+		 * Establish it here, exactly as page_alloc's hotplug path
+		 * does for node_lruvec().
+		 */
+		lruvec->pgdat = NODE_DATA(nid);
+
 		lru_gen_init_state(memcg, lruvec);
 	}
 }

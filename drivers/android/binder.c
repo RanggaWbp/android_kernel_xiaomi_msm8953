@@ -4695,6 +4695,7 @@ static void binder_free_proc(struct binder_proc *proc)
 	BUG_ON(!list_empty(&proc->delivered_death));
 	binder_alloc_deferred_release(&proc->alloc);
 	put_task_struct(proc->tsk);
+	put_cred(proc->cred);
 	binder_stats_deleted(BINDER_STAT_PROC);
 	kfree(proc);
 }
@@ -5449,6 +5450,16 @@ static void binder_deferred_release(struct binder_proc *proc)
 
 	binder_release_work(proc, &proc->todo);
 	binder_release_work(proc, &proc->delivered_death);
+	/*
+	 * Do NOT put_task_struct(proc->tsk)/put_cred(proc->cred) here:
+	 * binder_proc_dec_tmpref() below calls binder_free_proc(), which
+	 * already does put_task_struct(proc->tsk). Dropping the task
+	 * reference here as well (as the 4.9.337 backport did) underflows
+	 * proc->tsk's usage refcount: the task_struct is freed while the
+	 * task is still EXIT_ZOMBIE on its parent's children list, and
+	 * the parent's next waitpid() dereferences freed memory.
+	 * proc->cred is likewise released by binder_free_proc()'s owner.
+	 */
 
 	binder_debug(BINDER_DEBUG_OPEN_CLOSE,
 		     "%s: %d threads %d, nodes %d (ref %d), refs %d, active transactions %d\n",

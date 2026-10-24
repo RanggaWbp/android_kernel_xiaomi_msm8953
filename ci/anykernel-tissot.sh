@@ -18,7 +18,7 @@ device.name5=
 supported.versions=
 supported.patchlevels=
 supported.vendorpatchlevels=
-kernel. features=Linux 4.337 stable EOL|BakaSU root (KernelSU fork)|SUSFS (path + mount hide)|NoMount VFS hide (default off)|Baseband-guard LSM|SELinux enforcing|PREEMPT + core_ctl
+kernel. features=Linux 4.337 stable EOL|BakaSU root (KernelSU fork)|SUSFS (path + mount hide)|NoMount VFS hide (default off)|Baseband-guard LSM
 kernel. build_date=
 '; } # end properties
 

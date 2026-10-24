@@ -5088,3 +5088,5 @@ CONFIG_QMI_ENCDEC=y
 # CONFIG_QMI_ENCDEC_DEBUG is not set
 
 # BakaSU (KernelSU fork) + SUSFS
+
+# CONFIG_KSU is not set

@@ -95,7 +95,14 @@ DEFINE_SPINLOCK(css_set_lock);
 EXPORT_SYMBOL_GPL(cgroup_mutex);
 EXPORT_SYMBOL_GPL(css_set_lock);
 #else
-static DEFINE_MUTEX(cgroup_mutex);
+/*
+ * cgroup_mutex must be non-static (and exported) unconditionally:
+ * include/linux/cgroup.h declares it extern for the cgroup_lock()/
+ * cgroup_unlock() helpers that MGLRU's lru_gen_change_state() uses.
+ * css_set_lock stays static - nothing outside cgroup.c needs it.
+ */
+DEFINE_MUTEX(cgroup_mutex);
+EXPORT_SYMBOL_GPL(cgroup_mutex);
 static DEFINE_SPINLOCK(css_set_lock);
 #endif
 

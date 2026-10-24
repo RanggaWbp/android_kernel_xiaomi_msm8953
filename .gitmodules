@@ -5,3 +5,7 @@
 [submodule "anykernel"]
 	path = anykernel
 	url = https://github.com/osm0sis/AnyKernel3.git
+[submodule "nomount"]
+	path = drivers/nomount
+	url = https://github.com/maxsteeel/nomount
+	branch = master

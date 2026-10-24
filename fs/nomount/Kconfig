@@ -1,0 +1,31 @@
+# Kconfig for NoMount
+
+config NOMOUNT
+	tristate "NoMount Path Redirection Subsystem"
+	default n
+	help
+	  NoMount allows path redirection and virtual file injection
+	  without mounting filesystems. Useful for systemless modifications.
+
+	  NOTE: on this tree (Linux 4.9) the option is intentionally
+	  default n and must be enabled explicitly in the defconfig.
+
+config NOMOUNT_DEFAULT_ON
+	bool "Arm NoMount at boot"
+	depends on NOMOUNT
+	default n
+	help
+	  When set, the subsystem starts honouring rules as soon as the
+	  key type is registered.
+
+	  When left unset (the default, and strongly recommended), the
+	  subsystem is completely inert: no VFS hook is installed and no
+	  rule is accepted until the master switch is flipped at runtime:
+
+	    nomount_enabled=1                                  (kernel cmdline)
+	    echo 1 > /sys/module/nomount/parameters/nomount_enabled
+	    add_key ... nomount <NM_CMD_SET_ENABLED payload>   (keyring)
+
+	  Keeping this off is the boot-safety net: a broken or unfinished
+	  port can never turn into a bootloop because nothing is patched
+	  into the VFS until somebody asks for it.

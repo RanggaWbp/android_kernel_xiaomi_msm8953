@@ -419,12 +419,19 @@ int ext4_register_sysfs(struct super_block *sb)
 void ext4_unregister_sysfs(struct super_block *sb)
 {
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
-	struct ext4_proc_files *p;
 
+	/*
+	 * Idempotent: clear sbi->s_proc after removal so a second
+	 * put_super() (delayed task_work cleanup_mnt racing with a
+	 * re-mount of the same sb->s_id) can never walk a proc_dir_entry
+	 * that was already erased and freed - that deref panics in
+	 * remove_proc_entry() inside init and reboots the device.
+	 * remove_proc_subtree() drops the per-mount directory and all of
+	 * its children atomically under proc_subdir_lock.
+	 */
 	if (sbi->s_proc) {
-		for (p = proc_files; p->name; p++)
-			remove_proc_entry(p->name, sbi->s_proc);
-		remove_proc_entry(sb->s_id, ext4_proc_root);
+		remove_proc_subtree(sb->s_id, ext4_proc_root);
+		sbi->s_proc = NULL;
 	}
 	kobject_del(&sbi->s_kobj);
 }

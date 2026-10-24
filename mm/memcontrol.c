@@ -4319,13 +4319,31 @@ mem_cgroup_css_alloc(struct cgroup_subsys_state *parent_css)
 			memory_cgrp_subsys.broken_hierarchy = true;
 	}
 
+#ifdef CONFIG_LRU_GEN
+	/*
+	 * Initialise the MGLRU per-memcg state (mm_list + per-node lruvec
+	 * generation state) for EVERY memcg, not just the root.
+	 *
+	 * Only the root used to be initialised here, so a child memcg kept
+	 * a zeroed mm_list.fifo. The first lru_gen_add_mm() on such a memcg
+	 * then stored a NULL next pointer and the following list splice
+	 * dereferenced it:
+	 *
+	 *   Kernel BUG at lru_gen_migrate_mm+0x94/0xf8
+	 *   Code: ... (f9000116)  ; str x22, [x8], x8 = NULL
+	 *
+	 * css_alloc() runs before the memcg is visible to any task, so
+	 * initialising here is race-free (where upstream does it).
+	 */
+	lru_gen_init_memcg(memcg);
+#endif
+
 	/* The following stuff does not apply to the root */
 	if (!parent) {
 		root_mem_cgroup = memcg;
-		lru_gen_init_memcg(memcg);
 		return &memcg->css;
 	}
-
+#endif
 	error = memcg_online_kmem(memcg);
 	if (error)
 		goto fail;

@@ -5110,3 +5110,13 @@ CONFIG_KSU_MULTI_MANAGER_SUPPORT=y
 # NoMount (VFS path redirection, runtime-inert until rules are pushed via keyring)
 CONFIG_NOMOUNT=y
 # CONFIG_NOMOUNT_DEFAULT_ON is not set
+
+# Multi-Gen LRU (MGLRU) -- generational page reclaim.
+# CONFIG_LRU_GEN_STATS is intentionally off (per-node/per-memcg overhead).
+# Runtime kill switch: /sys/kernel/mm/lru_gen/enabled (0 falls back to the
+# classic active/inactive LRU path, which is kept fully intact).
+CONFIG_LRU_GEN=y
+CONFIG_LRU_GEN_ENABLED=y
+CONFIG_LRU_GEN_STATS=n
+CONFIG_NR_LRU_GENS=7
+CONFIG_TIERS_PER_GEN=4

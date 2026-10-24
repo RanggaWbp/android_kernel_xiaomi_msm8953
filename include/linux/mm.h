@@ -729,6 +729,8 @@ int alloc_set_pte(struct fault_env *fe, struct mem_cgroup *memcg,
 #define NODES_PGOFF		(SECTIONS_PGOFF - NODES_WIDTH)
 #define ZONES_PGOFF		(NODES_PGOFF - ZONES_WIDTH)
 #define LAST_CPUPID_PGOFF	(ZONES_PGOFF - LAST_CPUPID_WIDTH)
+#define LRU_GEN_PGOFF		(LAST_CPUPID_PGOFF - LRU_GEN_WIDTH)
+#define LRU_REFS_PGOFF		(LRU_GEN_PGOFF - LRU_REFS_WIDTH)
 
 /*
  * Define the bit shifts to access each section.  For non-existent
@@ -1293,6 +1295,18 @@ struct mm_walk {
 	struct vm_area_struct *vma;
 	void *private;
 };
+
+#ifndef arch_has_hw_pte_young
+/*
+ * Return whether the accessed bit is supported by the local CPU or all CPUs.
+ * Archs that manage the accessed bit themselves (e.g. with a swap entry)
+ * override this; MGLRU's page-table walk needs a default of false.
+ */
+static inline bool arch_has_hw_pte_young(bool local)
+{
+	return false;
+}
+#endif
 
 int walk_page_range(unsigned long addr, unsigned long end,
 		struct mm_walk *walk);

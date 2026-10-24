@@ -1823,6 +1823,13 @@ struct task_struct {
 	/* disallow userland-initiated cgroup migration */
 	unsigned no_cgroup_migration:1;
 #endif
+#ifdef CONFIG_LRU_GEN
+	/*
+	 * MGLRU: set while a non-sequential file page fault is in flight, so
+	 * the aging knows the fault is a random access rather than a scan.
+	 */
+	unsigned			in_nonseq_fault:1;
+#endif
 #ifdef CONFIG_PSI
 	/* Stalled due to lack of memory */
 	unsigned			in_memstall:1;

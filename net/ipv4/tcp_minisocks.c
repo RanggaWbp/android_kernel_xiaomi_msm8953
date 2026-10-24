@@ -413,6 +413,8 @@ void tcp_ca_openreq_child(struct sock *sk, const struct dst_entry *dst)
 	u32 ca_key = dst_metric(dst, RTAX_CC_ALGO);
 	bool ca_got_dst = false;
 
+	tcp_set_ecn_low_from_dst(sk, dst);
+
 	if (ca_key != TCP_CA_UNSPEC) {
 		const struct tcp_congestion_ops *ca;
 
@@ -471,9 +473,9 @@ struct sock *tcp_create_openreq_child(const struct sock *sk,
 
 		newtp->srtt_us = 0;
 		newtp->mdev_us = jiffies_to_usecs(TCP_TIMEOUT_INIT);
-		minmax_reset(&newtp->rtt_min, tcp_time_stamp, ~0U);
+		minmax_reset(&newtp->rtt_min, tcp_jiffies32, ~0U);
 		newicsk->icsk_rto = TCP_TIMEOUT_INIT;
-		newicsk->icsk_ack.lrcvtime = tcp_time_stamp;
+		newicsk->icsk_ack.lrcvtime = tcp_jiffies32;
 
 		newtp->packets_out = 0;
 		newtp->retrans_out = 0;

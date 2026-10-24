@@ -5121,3 +5121,6 @@ CONFIG_LRU_GEN_ENABLED=y
 CONFIG_LRU_GEN_STATS=n
 CONFIG_NR_LRU_GENS=7
 CONFIG_TIERS_PER_GEN=4
+
+# ntsync: NT synchronization primitives (/dev/ntsync) for Wine/Proton
+CONFIG_NTSYNC=y

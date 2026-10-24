@@ -2467,10 +2467,23 @@ extern void free_task(struct task_struct *tsk);
 
 extern void __put_task_struct(struct task_struct *t);
 
+extern void put_task_struct_zombie_warn(struct task_struct *t);
+
 static inline void put_task_struct(struct task_struct *t)
 {
-	if (atomic_dec_and_test(&t->usage))
+	if (atomic_dec_and_test(&t->usage)) {
+		/*
+		 * A task still in EXIT_ZOMBIE state must not lose its last
+		 * reference: it is still linked on its parent's children
+		 * list and the parent may still wait() on it. Reaching
+		 * usage==0 here means an unbalanced put_task_struct().
+		 * Warn with the caller's stack so the offender is named.
+		 */
+		if (unlikely((t->exit_state & EXIT_ZOMBIE) &&
+			     t->exit_state != EXIT_TRACE))
+			put_task_struct_zombie_warn(t);
 		__put_task_struct(t);
+	}
 }
 
 struct task_struct *task_rcu_dereference(struct task_struct **ptask);

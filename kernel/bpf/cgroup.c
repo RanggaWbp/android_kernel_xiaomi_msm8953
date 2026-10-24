@@ -149,9 +149,19 @@ static void activate_effective_progs(struct cgroup *cgrp,
  */
 int cgroup_bpf_inherit(struct cgroup *cgrp)
 {
-/* has to use marco instead of const int, since compiler thinks
- * that array below is variable length
- */
+	/*
+	 * Safety check: cgrp must be fully initialized with valid
+	 * root/level/parent before we traverse ancestors. A corrupted
+	 * or partially initialized cgroup can cause NULL deref or
+	 * invalid memory accesses. This catches races during early boot
+	 * where cgroup structs are allocated but not fully linked.
+	 */
+	if (unlikely(!cgrp || !cgrp->root)) {
+		pr_warn("%s: invalid cgroup (root=%p)\n", __func__, cgrp->root);
+		return -EINVAL;
+	}
+
+	/* has to use macro instead of const int, since compiler thinks */
 #define	NR ARRAY_SIZE(cgrp->bpf.effective)
 	struct bpf_prog_array __rcu *arrays[NR] = {};
 	int i;

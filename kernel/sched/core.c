@@ -90,6 +90,9 @@
 
 #include "sched.h"
 #include "walt.h"
+#ifdef CONFIG_SCHED_BORE
+#include <linux/sched/bore.h>
+#endif
 #include "../workqueue_internal.h"
 #include "../smpboot.h"
 #include "../time/tick-internal.h"
@@ -2575,6 +2578,10 @@ int sched_fork(unsigned long clone_flags, struct task_struct *p)
 	}
 
 	init_entity_runnable_average(&p->se);
+
+#ifdef CONFIG_SCHED_BORE
+	bore_fork(p, current);
+#endif
 
 	/*
 	 * The child is not yet in the pid-hash so no cgroup attach races,

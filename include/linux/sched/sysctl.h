@@ -44,6 +44,23 @@ walt_proc_update_handler(struct ctl_table *table, int write,
 
 #endif /* CONFIG_SCHED_WALT */
 
+#ifdef CONFIG_SCHED_BORE
+extern unsigned int sysctl_sched_bore;
+extern unsigned int sysctl_sched_burst_penalty_offset;
+extern unsigned int sysctl_sched_burst_penalty_scale;
+extern unsigned int sysctl_sched_burst_smoothness;
+extern unsigned int sysctl_sched_burst_inherit_type;
+
+extern int sched_bore_update_handler(struct ctl_table *table, int write,
+				     void __user *buffer, size_t *lenp,
+				     loff_t *ppos);
+extern int sched_burst_inherit_type_update_handler(struct ctl_table *table,
+						   int write,
+						   void __user *buffer,
+						   size_t *lenp, loff_t *ppos);
+
+#endif /* CONFIG_SCHED_BORE */
+
 #if defined(CONFIG_PREEMPT_TRACER) || defined(CONFIG_IRQSOFF_TRACER)
 extern unsigned int sysctl_preemptoff_tracing_threshold_ns;
 extern unsigned int sysctl_irqsoff_tracing_threshold_ns;

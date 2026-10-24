@@ -126,6 +126,11 @@ static int __maybe_unused neg_one = -1;
 
 static int zero;
 static int __maybe_unused one = 1;
+#ifdef CONFIG_SCHED_BORE
+static int maxval_6_bits = 63;
+static int maxval_8_bits = 255;
+static int maxval_16_bits = 65535;
+#endif
 static int __maybe_unused two = 2;
 static int __maybe_unused three = 3;
 static int __maybe_unused four = 4;
@@ -561,6 +566,53 @@ static struct ctl_table kern_table[] = {
 	},
 #endif /* CONFIG_NUMA_BALANCING */
 #endif /* CONFIG_SCHED_DEBUG */
+#ifdef CONFIG_SCHED_BORE
+	{
+		.procname	= "sched_bore",
+		.data		= &sysctl_sched_bore,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= sched_bore_update_handler,
+		.extra1		= &zero,
+		.extra2		= &one,
+	},
+	{
+		.procname	= "sched_burst_penalty_offset",
+		.data		= &sysctl_sched_burst_penalty_offset,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec_minmax,
+		.extra1		= &zero,
+		.extra2		= &maxval_8_bits,
+	},
+	{
+		.procname	= "sched_burst_penalty_scale",
+		.data		= &sysctl_sched_burst_penalty_scale,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec_minmax,
+		.extra1		= &zero,
+		.extra2		= &maxval_16_bits,
+	},
+	{
+		.procname	= "sched_burst_smoothness",
+		.data		= &sysctl_sched_burst_smoothness,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec_minmax,
+		.extra1		= &zero,
+		.extra2		= &maxval_6_bits,
+	},
+	{
+		.procname	= "sched_burst_inherit_type",
+		.data		= &sysctl_sched_burst_inherit_type,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= sched_burst_inherit_type_update_handler,
+		.extra1		= &zero,
+		.extra2		= &maxval_6_bits,
+	},
+#endif /* CONFIG_SCHED_BORE */
 	{
 		.procname	= "sched_rt_period_us",
 		.data		= &sysctl_sched_rt_period,

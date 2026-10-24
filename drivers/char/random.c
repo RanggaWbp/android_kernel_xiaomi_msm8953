@@ -943,9 +943,13 @@ void add_hwgenerator_randomness(const void *buf, size_t len, size_t entropy)
 
 	/*
 	 * Throttle writing to once every CRNG_RESEED_INTERVAL, unless
-	 * we're not yet initialized.
+	 * we're not yet initialized. kthread_should_stop() dereferences
+	 * to_kthread(current), which is only valid for real kthreads -
+	 * early_random calls this from setup_arch() with init_task, so
+	 * gate on PF_KTHREAD to avoid a wild read (and a pre-scheduler
+	 * sleep) on the non-kthread path.
 	 */
-	if (!kthread_should_stop() && crng_ready())
+	if (crng_ready() && (current->flags & PF_KTHREAD) && !kthread_should_stop())
 		schedule_timeout_interruptible(CRNG_RESEED_INTERVAL);
 }
 EXPORT_SYMBOL_GPL(add_hwgenerator_randomness);

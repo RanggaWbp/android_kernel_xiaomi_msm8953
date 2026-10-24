@@ -393,6 +393,19 @@ void __put_task_struct(struct task_struct *tsk)
 	WARN_ON(atomic_read(&tsk->usage));
 	WARN_ON(tsk == current);
 
+	/*
+	 * exit_state must be EXIT_DEAD here: release_task() unlinks the
+	 * task from its parent's children list. EXIT_ZOMBIE means the
+	 * usage refcount hit 0 while the task was still a reapable
+	 * zombie, so a phantom entry stays on the children list and a
+	 * later waitpid() dereferences the freed task_struct.
+	 */
+	if (unlikely(tsk->exit_state != EXIT_DEAD))
+		pr_warn("premature task_struct free: %s[%d] ppid %d "
+			"exit_state=%d\n",
+			tsk->comm, task_pid_nr(tsk),
+			task_pid_vnr(tsk->real_parent), tsk->exit_state);
+
 	cgroup_free(tsk);
 	task_numa_free(tsk, true);
 	security_task_free(tsk);

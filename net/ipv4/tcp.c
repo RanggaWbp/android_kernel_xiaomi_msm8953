@@ -393,7 +393,7 @@ void tcp_init_sock(struct sock *sk)
 
 	icsk->icsk_rto = TCP_TIMEOUT_INIT;
 	tp->mdev_us = jiffies_to_usecs(TCP_TIMEOUT_INIT);
-	minmax_reset(&tp->rtt_min, tcp_time_stamp, ~0U);
+	minmax_reset(&tp->rtt_min, tcp_jiffies32, ~0U);
 
 	/* So many TCP implementations out there (incorrectly) count the
 	 * initial SYN frame in their delayed-ACK and congestion control
@@ -2352,6 +2352,7 @@ int tcp_disconnect(struct sock *sk, int flags)
 	__sk_dst_reset(sk);
 	dst_release(xchg((__force struct dst_entry **)&sk->sk_rx_dst, NULL));
 	tcp_saved_syn_free(tp);
+	tp->fast_ack_mode = 0;
 	tp->segs_in = 0;
 	tp->segs_out = 0;
 	tp->bytes_acked = 0;

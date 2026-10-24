@@ -2632,6 +2632,18 @@ void lru_gen_migrate_mm(struct mm_struct *mm)
 	if (mem_cgroup_disabled())
 		return;
 
+	/*
+	 * A task can be attached to a memcg with an mm that never went
+	 * through mm_alloc()/lru_gen_init_mm() (e.g. a task that shares
+	 * an existing mm, or one created before LRU_GEN was active).
+	 * Such an mm has an empty lrugen.list and a NULL lrugen.memcg:
+	 * migrating it would dereference the NULL memcg inside
+	 * lru_gen_add_mm(). Initialise it here instead - this is the
+	 * same state lru_gen_init_mm() leaves behind.
+	 */
+	if (unlikely(list_empty(&mm->lrugen.list)))
+		lru_gen_init_mm(mm);
+
 	rcu_read_lock();
 	memcg = mem_cgroup_from_task(mm->owner);
 	rcu_read_unlock();

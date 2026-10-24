@@ -126,6 +126,20 @@ jobs:
           echo "${BUILD_TS} -- BakaSU version code: $BAKASU_VER_CODE"
           echo "${BUILD_TS} -- BakaSU version name: $BAKASU_VER_NAME"
           echo "${BUILD_TS} -- Supported Managers: $BAKASU_MANAGERS"
+          # Kernel feature set actually compiled in, read from the settled config
+          # so the log can never claim a feature the build does not have.
+          FEATURES=""
+          for f in SCHED_BORE:BORE LRU_GEN:MGLRU NTSYNC:NTSYNC \
+                   IOSCHED_ADIOS:ADIOS TCP_CONG_BBR3:BBRv3 NOMOUNT:NoMount \
+                   BBG:Baseband-guard REKERNEL:Rekernel; do
+            sym="${f%%:*}"
+            name="${f##*:}"
+            if grep -q "^CONFIG_${sym}=y" "$O/.config" 2>/dev/null; then
+              FEATURES="${FEATURES}${name}, "
+            fi
+          done
+          FEATURES="${FEATURES%, }"
+          echo "${BUILD_TS} -- Kernel features: ${FEATURES:-none}"
 
       - name: Fetch toolchains (primary + fallback mirrors)
         run: |
@@ -398,6 +412,7 @@ jobs:
             | BakaSU version name | ${{ needs.build.outputs.bakasu_ver_name }} |
             | Supported Managers | ${{ needs.build.outputs.bakasu_managers }} |
             | SUSFS | inline hooks, susfs-compatible |
+            | Features | BORE scheduler, MGLRU page reclaim, NTSYNC (Wine/Proton), ADIOS I/O scheduler, BBRv3 congestion, NoMount, Baseband-guard LSM, Rekernel net monitor, DroidSpaces container |
             | Boot image | `${{ needs.build.outputs.image }}` (DTB appended) |
             | Flasher | AnyKernel3 @ ${{ steps.rel.outputs.ak3_sha }} |
             | Commit | ${{ steps.rel.outputs.sha8 }} |

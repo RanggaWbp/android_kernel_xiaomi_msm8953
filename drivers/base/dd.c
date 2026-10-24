@@ -612,10 +612,13 @@ static int __device_attach_driver(struct device_driver *drv, void *_data)
 		dev_dbg(dev, "Device match requests probe deferral\n");
 		driver_deferred_probe_add(dev);
 		/*
-		 * Device can't match with a driver right now, so don't attempt
-		 * to match or bind with other drivers on the bus.
+		 * NOTE: vendor tree compatibility - the 4.9.337 stable series
+		 * made -EPROBE_DEFER at match time stop the attach, but this
+		 * vendor tree's drivers (msm_bus, rpm, smd, regulators, ...)
+		 * rely on the pre-stable behaviour: record the deferral and
+		 * still attempt the probe (their probe() tolerates a missing
+		 * supplier and defers internally). Restore the fall-through.
 		 */
-		return ret;
 	} else if (ret < 0) {
 		dev_dbg(dev, "Bus failed to match device: %d", ret);
 		return ret;
@@ -758,11 +761,9 @@ static int __driver_attach(struct device *dev, void *data)
 	} else if (ret == -EPROBE_DEFER) {
 		dev_dbg(dev, "Device match requests probe deferral\n");
 		driver_deferred_probe_add(dev);
-		/*
-		 * Driver could not match with device, but may match with
-		 * another device on the bus.
+		/* vendor tree compatibility: keep the pre-4.9.337 fall-through
+		 * and still try to bind; see __device_attach_driver above.
 		 */
-		return 0;
 	} else if (ret < 0) {
 		dev_dbg(dev, "Bus failed to match device: %d", ret);
 		return ret;

@@ -1063,8 +1063,24 @@ static int wait_task_zombie(struct wait_opts *wo, struct task_struct *p)
 {
 	int state, retval, status;
 	pid_t pid = task_pid_vnr(p);
-	uid_t uid = from_kuid_munged(current_user_ns(), task_uid(p));
+	uid_t uid;
 	struct siginfo __user *infop;
+
+	/*
+	 * A child still on the children list whose creds were already
+	 * released (real_cred == NULL) is a phantom task_struct: its
+	 * usage already hit 0 without release_task() unlinking it.
+	 * Reading ->uid would fault; report and skip the reap.
+	 */
+	if (unlikely(READ_ONCE(p->real_cred) == NULL)) {
+		pr_warn("wait_task_zombie: phantom child %s[%d] ppid %d "
+			"exit_state=%d usage=%d\n",
+			p->comm, pid, task_pid_vnr(p->real_parent),
+			p->exit_state, atomic_read(&p->usage));
+		return 0;
+	}
+
+	uid = from_kuid_munged(current_user_ns(), task_uid(p));
 
 	if (!likely(wo->wo_flags & WEXITED))
 		return 0;

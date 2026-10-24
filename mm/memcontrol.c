@@ -4343,7 +4343,6 @@ mem_cgroup_css_alloc(struct cgroup_subsys_state *parent_css)
 		root_mem_cgroup = memcg;
 		return &memcg->css;
 	}
-#endif
 	error = memcg_online_kmem(memcg);
 	if (error)
 		goto fail;

@@ -419,6 +419,7 @@ static inline void cgroup_put(struct cgroup *cgrp)
 #ifdef CONFIG_PROVE_RCU
 extern struct mutex cgroup_mutex;
 extern spinlock_t css_set_lock;
+
 #define task_css_set_check(task, __c)					\
 	rcu_dereference_check((task)->cgroups,				\
 		lockdep_is_held(&cgroup_mutex) ||			\
@@ -428,6 +429,26 @@ extern spinlock_t css_set_lock;
 #define task_css_set_check(task, __c)					\
 	rcu_dereference((task)->cgroups)
 #endif
+
+/*
+ * 4.9 only exports cgroup_mutex under CONFIG_PROVE_RCU; the symbol itself
+ * always exists in kernel/cgroup.c.  MGLRU's lru_gen_change_state() needs
+ * to serialise against cgroup creation/destruction, so provide the
+ * lock/unlock helpers unconditionally.
+ */
+#ifndef CONFIG_PROVE_RCU
+extern struct mutex cgroup_mutex;
+#endif
+
+static inline void cgroup_lock(void)
+{
+	mutex_lock(&cgroup_mutex);
+}
+
+static inline void cgroup_unlock(void)
+{
+	mutex_unlock(&cgroup_mutex);
+}
 
 /**
  * task_css_check - obtain css for (task, subsys) w/ extra access conds

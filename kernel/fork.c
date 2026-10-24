@@ -418,6 +418,21 @@ void __put_task_struct(struct task_struct *tsk)
 }
 EXPORT_SYMBOL_GPL(__put_task_struct);
 
+/*
+ * Called from put_task_struct() when a task's last reference is
+ * dropped while the task is still EXIT_ZOMBIE. The caller's stack is
+ * printed here (this is not the RCU callback path) so the unbalanced
+ * put_task_struct() site is identified.
+ */
+void put_task_struct_zombie_warn(struct task_struct *tsk)
+{
+	pr_warn("put_task_struct: unbalanced drop on zombie %s[%d] ppid %d "
+		"exit_state=%d\n", tsk->comm, task_pid_nr(tsk),
+		task_pid_vnr(tsk->real_parent), tsk->exit_state);
+	dump_stack();
+}
+EXPORT_SYMBOL_GPL(put_task_struct_zombie_warn);
+
 void __init __weak arch_task_cache_init(void) { }
 
 /*

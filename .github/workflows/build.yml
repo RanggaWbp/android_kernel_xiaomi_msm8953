@@ -16,14 +16,18 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     outputs:
-      sha8: ${{ steps. meta. outputs. sha8 }}
-      ksu_sha: ${{ steps. meta. outputs. ksu_sha }}
-      ksu_count: ${{ steps. meta. outputs. ksu_count }}
-      bakasu_ver: ${{ steps. meta. outputs. bakasu_ver }}
-      kver: ${{ steps. meta. outputs. kver }}
-      kernel_string: ${{ steps. meta. outputs. kernel_string }}
-      image: ${{ steps. img. outputs. image }}
-      zip: ${{ steps. pkg. outputs. zip }}
+      sha8: ${{ steps.meta.outputs.sha8 }}
+      ksu_sha: ${{ steps.meta.outputs.ksu_sha }}
+      ksu_count: ${{ steps.meta.outputs.ksu_count }}
+      bakasu_ver: ${{ steps.meta.outputs.bakasu_ver }}
+      bakasu_ver_code: ${{ steps.meta.outputs.bakasu_ver_code }}
+      bakasu_ver_name: ${{ steps.meta.outputs.bakasu_ver_name }}
+      bakasu_managers: ${{ steps.meta.outputs.bakasu_managers }}
+      kver: ${{ steps.meta.outputs.kver }}
+      kernel_string: ${{ steps.meta.outputs.kernel_string }}
+      build_ts: ${{ steps.meta.outputs.build_ts }}
+      image: ${{ steps.img.outputs.image }}
+      zip: ${{ steps.pkg.outputs.zip }}
     steps:
       - name: "Checkout with submodules"
         uses: actions/checkout@v4
@@ -36,17 +40,71 @@ jobs:
         run: |
           set -eo pipefail
           SHA8="$(git rev-parse --short=8 HEAD)"
+          BUILD_TS="$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)"
+          BUILD_DATE="$(date -u +%Y%m%d)"
           # BakaSU lives in the KernelSU submodule (merged by the kernel agent) - tolerate its absence
           KSU_SHA="unknown"
           KSU_COUNT="0"
-          BAKASU_VER="unknown"
+          KSU_DESCRIBE="unknown"
+          BAKASU_VER_CODE="unknown"
+          BAKASU_VER_NAME="unknown"
+          BAKASU_MANAGERS="unknown"
           if [ -d drivers/KernelSU ] && [ -n "$(ls -A drivers/KernelSU 2>/dev/null)" ]; then
             KSU_SHA="$(git -C drivers/KernelSU rev-parse --short=8 HEAD 2>/dev/null || echo unknown)"
             KSU_COUNT="$(git -C drivers/KernelSU rev-list --count HEAD 2>/dev/null || echo 0)"
-            if BAKASU_VER="$(git -C drivers/KernelSU describe --tags --always 2>/dev/null)"; then :; else BAKASU_VER=""; fi
-            BANNER="$(grep -rhoE 'BakaSU[- ]?v?[0-9][0-9.]+' drivers/KernelSU --include='*.c' --include='*.h' --include='Kbuild' --include='Makefile' 2>/dev/null | head -n1 || true)"
-            if [ -n "$BANNER" ]; then BAKASU_VER="$BANNER"; fi
-            if [ -z "$BAKASU_VER" ]; then BAKASU_VER="r${KSU_COUNT}"; fi
+            KSU_TAG="$(git -C drivers/KernelSU describe --abbrev=0 --tags 2>/dev/null || echo unknown)"
+            KSU_DESCRIBE="$(git -C drivers/KernelSU describe --tags --always 2>/dev/null || echo unknown)"
+            KSU_BRANCH="$(git -C drivers/KernelSU branch --show-current 2>/dev/null || true)"
+            if [ -z "$KSU_BRANCH" ]; then KSU_BRANCH="unknown"; fi
+            KBUILD="drivers/KernelSU/kernel/Kbuild"
+            KCFG="drivers/KernelSU/kernel/Kconfig"
+            # --- primary source: kernel/Kbuild, i.e. the exact math the KSU module prints at build time ---
+            # KSU_VERSION := $(shell expr <const> + $(rev-list --count HEAD) [+ <const> ...])
+            if [ -f "$KBUILD" ]; then
+              CODE_EXPR="$(sed -n 's/^KSU_VERSION := \$(shell expr \(.*\)).*$/\1/p' "$KBUILD" | head -n1)"
+              if [ -n "$CODE_EXPR" ]; then
+                CONST_SUM="$(printf '%s\n' "$CODE_EXPR" | grep -o '[0-9][0-9]*' | awk '{s+=$1} END{print s+0}')"
+                BAKASU_VER_CODE="$(( CONST_SUM + KSU_COUNT ))"
+              fi
+              # KSU_VERSION_FULL := CONFIG_KSU_FULL_NAME_FORMAT with the %PLACEHOLDER%s resolved
+              # (sed range, not awk: mawk on the ubuntu runner rejects [[:space:]])
+              NAME_FMT="$(sed -n '/^config KSU_FULL_NAME_FORMAT$/,/^[^[:space:]]/ s/^[[:space:]]*default "\(.*\)".*/\1/p' "$KCFG" | head -n1)"
+              if [ -n "$NAME_FMT" ]; then
+                BAKASU_VER_NAME="$NAME_FMT"
+                BAKASU_VER_NAME="${BAKASU_VER_NAME//%TAG_NAME%/$KSU_TAG}"
+                BAKASU_VER_NAME="${BAKASU_VER_NAME//%COMMIT_SHA%/$KSU_SHA}"
+                BAKASU_VER_NAME="${BAKASU_VER_NAME//%REPO_NAME%/BakaSU}"
+                BAKASU_VER_NAME="${BAKASU_VER_NAME//%BRANCH_NAME%/$KSU_BRANCH}"
+                BAKASU_VER_NAME="${BAKASU_VER_NAME//%KSU_VERSION%/$BAKASU_VER_CODE}"
+              fi
+              # 'Supported Managers' line - only emitted when CONFIG_KSU_MULTI_MANAGER_SUPPORT=y
+              MGR="$(sed -n 's/^\$(info -- Supported Managers: \(.*\))$/\1/p' "$KBUILD" | head -n1)"
+              MGR="$(printf '%s' "$MGR" | sed 's/[[:space:]]*$//')"
+              if [ -n "$MGR" ]; then BAKASU_MANAGERS="$MGR"; fi
+            fi
+            # --- fallback: submodule git only, no hardcoded version numbers ---
+            if [ -f "$KBUILD" ] && [ -z "$NAME_FMT" ]; then
+              echo ":: warning::KSU_FULL_NAME_FORMAT not found in kernel/Kconfig - falling back to git describe"
+            fi
+            if [ "$BAKASU_VER_NAME" = "unknown" ] && [ "$KSU_DESCRIBE" != "unknown" ]; then
+              BAKASU_VER_NAME="$KSU_DESCRIBE"
+            fi
+            if [ "$BAKASU_VER_CODE" = "unknown" ]; then
+              echo ":: warning::BakaSU version code not derivable from kernel/Kbuild - release shows 'unknown'"
+            fi
+            if [ "$BAKASU_MANAGERS" = "unknown" ] && grep -qE '^CONFIG_KSU_MULTI_MANAGER_SUPPORT=y' arch/arm64/configs/tissot_defconfig 2>/dev/null; then
+              echo ":: warning::CONFIG_KSU_MULTI_MANAGER_SUPPORT=y but no 'Supported Managers' line in kernel/Kbuild"
+            fi
+          fi
+          # composite version string for kernel.string + the release table
+          if [ "$BAKASU_VER_NAME" != "unknown" ] && [ "$BAKASU_VER_CODE" != "unknown" ]; then
+            BAKASU_VER="$BAKASU_VER_NAME (code $BAKASU_VER_CODE)"
+          elif [ "$BAKASU_VER_NAME" != "unknown" ]; then
+            BAKASU_VER="$BAKASU_VER_NAME"
+          elif [ "$KSU_COUNT" != "0" ]; then
+            BAKASU_VER="r${KSU_COUNT}"
+          else
+            BAKASU_VER="unknown"
           fi
           KVER="$(sed -n 's/^VERSION = //p' Makefile).$(sed -n 's/^PATCHLEVEL = //p' Makefile).$(sed -n 's/^SUBLEVEL = //p' Makefile)"
           KERNEL_STRING="tissot-${KVER}|BakaSU-SUSFS|${BAKASU_VER}|g${SHA8}"
@@ -55,10 +113,19 @@ jobs:
             echo "ksu_sha=$KSU_SHA"
             echo "ksu_count=$KSU_COUNT"
             echo "bakasu_ver=$BAKASU_VER"
+            echo "bakasu_ver_code=$BAKASU_VER_CODE"
+            echo "bakasu_ver_name=$BAKASU_VER_NAME"
+            echo "bakasu_managers=$BAKASU_MANAGERS"
             echo "kver=$KVER"
             echo "kernel_string=$KERNEL_STRING"
+            echo "build_ts=$BUILD_TS"
+            echo "build_date=$BUILD_DATE"
           } >> "$GITHUB_OUTPUT"
           echo "kernel.string=$KERNEL_STRING"
+          # BakaSU build-log format - re-derived on every BakaSU sync, never hardcoded
+          echo "${BUILD_TS} -- BakaSU version code: $BAKASU_VER_CODE"
+          echo "${BUILD_TS} -- BakaSU version name: $BAKASU_VER_NAME"
+          echo "${BUILD_TS} -- Supported Managers: $BAKASU_MANAGERS"
 
       - name: Fetch toolchains (primary + fallback mirrors)
         run: |
@@ -219,8 +286,9 @@ jobs:
       - name: Package AnyKernel3 zip
         id: pkg
         env:
-          IMAGE_NAME: ${{ steps. img. outputs. image }}
-          KERNEL_STRING: ${{ steps. meta. outputs. kernel_string }}
+          IMAGE_NAME: ${{ steps.img.outputs.image }}
+          KERNEL_STRING: ${{ steps.meta.outputs.kernel_string }}
+          BUILD_DATE: ${{ steps.meta.outputs.build_date }}
         run: |
           set -eo pipefail
           if [ ! -f "out/arch/arm64/boot/$IMAGE_NAME" ]; then
@@ -241,7 +309,7 @@ jobs:
           rm -rf anykernel/.git anykernel/.github \
             Image Image-dtb Image.gz Image.bz2 Image.lzo Image.lzma Image.xz Image.lz4 kernel
           cp "out/arch/arm64/boot/$IMAGE_NAME" anykernel/
-          ZIP="tissot-BakaSU-SUSFS-${GITHUB_SHA:0:8}.zip"
+          ZIP="tissot-BakaSU-SUSFS-${BUILD_DATE}-${GITHUB_SHA:0:8}.zip"
           ( cd anykernel && zip -r9 "../$ZIP" . -x '.git*' > /dev/null )
           if ! unzip -l "$ZIP" | grep -qE " ${IMAGE_NAME}$"; then
             echo ":: error::$IMAGE_NAME is not inside $ZIP"
@@ -266,6 +334,10 @@ jobs:
     name: Release
     needs: build
     runs-on: ubuntu-24.04
+    env:
+      # anchored to the build moment so tag / zip / release body can never disagree
+      BUILD_DATE: ${{ needs.build.outputs.build_date }}
+      BUILD_TS: ${{ needs.build.outputs.build_ts }}
     steps:
       - name: Checkout for release metadata
         uses: actions/checkout@v4
@@ -280,14 +352,16 @@ jobs:
           AK3_SHA="$(git ls-tree HEAD anykernel | awk '{print $3}')"
           KSU_SHA="$(git ls-tree HEAD drivers/KernelSU | awk '{print $3}')"
           if [ -z "$KSU_SHA" ]; then KSU_SHA="not-merged-yet"; fi
-          TAG="tissot-$(date -u +%Y%m%d)-${SHA8}"
+          TAG="tissot-${BUILD_DATE}-${SHA8}"
           {
             echo "tag=$TAG"
             echo "ak3_sha=$AK3_SHA"
             echo "ksu_sha=$KSU_SHA"
             echo "sha8=$SHA8"
+            echo "build_ts=$BUILD_TS"
           } >> "$GITHUB_OUTPUT"
           echo "release tag: $TAG"
+          echo "built at (UTC): $BUILD_TS"
 
       - name: Download zip artifact
         uses: actions/download-artifact@v4
@@ -308,8 +382,8 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps. rel. outputs. tag }}
-          name: tissot BakaSU+SUSFS ${{ steps. rel. outputs. sha8 }}
+          tag_name: ${{ steps.rel.outputs.tag }}
+          name: tissot BakaSU+SUSFS ${{ steps.rel.outputs.sha8 }} (BakaSU ${{ needs.build.outputs.bakasu_ver_name }})
           make_latest: true
           files: artifacts/*.zip
           body: |
@@ -317,13 +391,17 @@ jobs:
 
             | | |
             |---|---|
-            | Kernel | Linux ${{ needs. build. outputs. kver }} (stable, EOL) |
+            | Kernel | Linux ${{ needs.build.outputs.kver }} (stable, EOL) |
             | Tree | LineageOS/CAF msm8953 (lineage-21) |
-            | Root | BakaSU (KernelSU fork, sync-susfs) @ ${{ needs. build. outputs. ksu_sha }} (${{ needs. build. outputs. bakasu_ver }}) |
+            | Root | BakaSU (KernelSU fork, sync-susfs) @ ${{ needs.build.outputs.ksu_sha }} (${{ needs.build.outputs.bakasu_ver_name }}) |
+            | BakaSU version code | ${{ needs.build.outputs.bakasu_ver_code }} |
+            | BakaSU version name | ${{ needs.build.outputs.bakasu_ver_name }} |
+            | Supported Managers | ${{ needs.build.outputs.bakasu_managers }} |
             | SUSFS | inline hooks, susfs-compatible |
-            | Boot image | `${{ needs. build. outputs. image }}` (DTB appended) |
-            | Flasher | AnyKernel3 @ ${{ steps. rel. outputs. ak3_sha }} |
-            | Commit | ${{ steps. rel. outputs. sha8 }} |
+            | Boot image | `${{ needs.build.outputs.image }}` (DTB appended) |
+            | Flasher | AnyKernel3 @ ${{ steps.rel.outputs.ak3_sha }} |
+            | Commit | ${{ steps.rel.outputs.sha8 }} |
+            | Build date (UTC) | ${{ needs.build.outputs.build_ts }} |
 
             **Flash:** TWRP/OrangeFox or any kernel-flasher app → install the zip. Mi A1 is A-only, so there is no second slot to switch to.
 

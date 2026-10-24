@@ -3841,6 +3841,19 @@ static int cgroup_add_file(struct cgroup_subsys_state *css, struct cgroup *cgrp,
 		spin_unlock_irq(&cgroup_file_kn_lock);
 	}
 
+	/*
+	 * Restore prefixed-name links on roots without CGRP_ROOT_NOPREFIX:
+	 * cgroup_add_file() writes the file under the (possibly prefixed)
+	 * kernfs name, so re-create the "<ss>.<name>" link that DroidSpaces
+	 * and other legacy userspace expects.
+	 */
+	if (cft->ss && (cgrp->root->flags & CGRP_ROOT_NOPREFIX) &&
+	    !(cft->flags & CFTYPE_NO_PREFIX)) {
+		snprintf(name, CGROUP_FILE_NAME_MAX, "%s.%s",
+			 cft->ss->name, cft->name);
+		kernfs_create_link(cgrp->kn, name, kn);
+	}
+
 	return 0;
 }
 

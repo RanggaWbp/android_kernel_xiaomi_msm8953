@@ -18,7 +18,7 @@ device.name5=
 supported.versions=
 supported.patchlevels=
 supported.vendorpatchlevels=
-kernel. features=Linux 4.9.337 stable EOL on vendor msm8953|BORE scheduler (Burstable Entity Revolution)|BakaSU root (KernelSU fork, sync-susfs)|SUSFS (inline hooks, susfs-compatible)|AnyKernel3 flasher|Bootloop fixes: ext4 sysfs UAF, binder double-put, phantom child, cpu_errata KRYO, random PF_KTHREAD
+kernel. features=Linux 4.337 stable EOL|BakaSU root (KernelSU fork)|SUSFS (path + mount hide)|NoMount VFS hide (default off)|Baseband-guard LSM|SELinux enforcing|PREEMPT + core_ctl
 kernel. build_date=
 '; } # end properties
 

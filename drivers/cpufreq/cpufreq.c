@@ -640,6 +640,55 @@ unsigned int cpufreq_driver_resolve_freq(struct cpufreq_policy *policy,
 }
 EXPORT_SYMBOL_GPL(cpufreq_driver_resolve_freq);
 
+/*
+ * The three helpers below are backported from later kernels so that
+ * external cpufreq governors (cpufreq_reflex) can share the same source
+ * across kernel versions.  No cpufreq driver in this tree implements
+ * ->adjust_perf(), so cpufreq_driver_has_adjust_perf() always reports
+ * false and the adjust_perf path stays unused.
+ */
+
+/**
+ * cpufreq_driver_test_flags - Test flags of cpufreq driver.
+ * @flags: the flags to test.
+ *
+ * Return: true if all of the given flags are set, otherwise false.
+ */
+bool cpufreq_driver_test_flags(u16 flags)
+{
+	return !!(cpufreq_driver->flags & flags);
+}
+EXPORT_SYMBOL_GPL(cpufreq_driver_test_flags);
+
+/**
+ * cpufreq_driver_adjust_perf - Adjust CPU performance level.
+ * @cpu: CPU to adjust the performance level for.
+ * @min_perf: minimum performance level required.
+ * @target_perf: target performance level to reach.
+ * @capacity: capacity of the CPU.
+ */
+void cpufreq_driver_adjust_perf(unsigned int cpu,
+				unsigned long min_perf,
+				unsigned long target_perf,
+				unsigned long capacity)
+{
+	if (cpufreq_driver->adjust_perf)
+		cpufreq_driver->adjust_perf(cpu, min_perf, target_perf,
+					    capacity);
+}
+EXPORT_SYMBOL_GPL(cpufreq_driver_adjust_perf);
+
+/**
+ * cpufreq_driver_has_adjust_perf - Check "direct fast switch" callback.
+ *
+ * Return: true if the driver has a ->adjust_perf() callback, otherwise false.
+ */
+bool cpufreq_driver_has_adjust_perf(void)
+{
+	return !!cpufreq_driver->adjust_perf;
+}
+EXPORT_SYMBOL_GPL(cpufreq_driver_has_adjust_perf);
+
 /*********************************************************************
  *                          SYSFS INTERFACE                          *
  *********************************************************************/

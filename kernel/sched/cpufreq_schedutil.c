@@ -1058,3 +1058,76 @@ static int __init sugov_register(void)
 	return cpufreq_register_governor(&schedutil_gov);
 }
 fs_initcall(sugov_register);
+
+/*************** Exported helpers for external cpufreq governors ***************/
+
+/*
+ * Backport of the helpers reflex (and any other out-of-tree governor)
+ * needs from schedutil.  Written against this kernel's 4.9 schedutil:
+ * there is no uclamp, no sched_ext and no cpu_bw_dl(), so the plumbing
+ * that 6.12 exposes through min/max bandwidth is reduced to the max
+ * capacity this kernel already computes in sugov_get_util().
+ */
+
+/**
+ * cpufreq_get_capacity_ref_freq - Get the reference frequency for capacity
+ * scaling of a given cpufreq policy.
+ * @policy: the cpufreq policy of the CPU in question.
+ *
+ * Return: the reference CPU frequency.
+ */
+unsigned long cpufreq_get_capacity_ref_freq(struct cpufreq_policy *policy)
+{
+	return arch_scale_freq_invariant() ?
+		policy->cpuinfo.max_freq : policy->cur;
+}
+EXPORT_SYMBOL_GPL(cpufreq_get_capacity_ref_freq);
+
+/**
+ * cpufreq_get_effective_util - Get effective CPU utilization for frequency
+ * scaling, combining all scheduling classes and applying DVFS headroom.
+ * @cpu: the CPU number.
+ * @boost: additional utilization boost (e.g. from IO wait).
+ * @out_util: pointer to store the effective utilization (with DVFS headroom).
+ * @out_bw_min: pointer to store the minimum bandwidth requirement.
+ * @out_bw_max: pointer to store the maximum (allowed) performance level,
+ *		as required by cpufreq_driver_adjust_perf().
+ */
+void cpufreq_get_effective_util(int cpu, unsigned long boost,
+				unsigned long *out_util,
+				unsigned long *out_bw_min,
+				unsigned long *out_bw_max)
+{
+	unsigned long util, max;
+
+	/* The same base utilisation schedutil itself uses on this kernel. */
+	sugov_get_util(&util, &max, cpu);
+
+	util = max(util, boost);
+
+	/*
+	 * 4.9 has no uclamp and no DL min-bandwidth plumbing in the governor
+	 * interface, so there is no lower bound to advertise; the max
+	 * capacity is the only cap.
+	 */
+	*out_util = util;
+	*out_bw_min = 0;
+	*out_bw_max = max;
+}
+EXPORT_SYMBOL_GPL(cpufreq_get_effective_util);
+
+/**
+ * cpufreq_cpu_dl_bw_exceeded - Check if DL bandwidth exceeds minimum.
+ * @cpu: the CPU number.
+ * @bw_min: the minimum bandwidth to compare against.
+ *
+ * Return: true if the deadline bandwidth of @cpu exceeds @bw_min.
+ *
+ * 4.9 has no cpu_bw_dl(); runnable deadline tasks are the strongest
+ * available signal that the CPU has deadline bandwidth to serve.
+ */
+bool cpufreq_cpu_dl_bw_exceeded(int cpu, unsigned long bw_min)
+{
+	return cpu_rq(cpu)->dl.dl_nr_running > 0;
+}
+EXPORT_SYMBOL_GPL(cpufreq_cpu_dl_bw_exceeded);

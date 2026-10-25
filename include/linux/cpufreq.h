@@ -278,6 +278,18 @@ struct cpufreq_driver {
 					unsigned int target_freq);
 
 	/*
+	 * Callback to be used by governors with an internal policy for
+	 * updating CPU performance directly, without going through the
+	 * intermediate frequency representation.  Backported from later
+	 * kernels for the reflex governor; no driver in this tree
+	 * implements it, so cpufreq_driver_has_adjust_perf() is false.
+	 */
+	void		(*adjust_perf)(unsigned int cpu,
+				       unsigned long min_perf,
+				       unsigned long target_perf,
+				       unsigned long capacity);
+
+	/*
 	 * Only for drivers with target_index() and CPUFREQ_ASYNC_NOTIFICATION
 	 * unset.
 	 *
@@ -359,6 +371,13 @@ struct cpufreq_driver {
  * or be too slow for hot path use.
  */
 #define CPUFREQ_DRIVER_FAST		(1 << 6)
+
+/*
+ * Driver needs the ->limits() callback to run on every scheduler
+ * update, not only when the policy limits change.  Backported for the
+ * reflex governor; no driver in this tree sets it.
+ */
+#define CPUFREQ_NEED_UPDATE_LIMITS	(1 << 7)
 
 int cpufreq_register_driver(struct cpufreq_driver *driver_data);
 int cpufreq_unregister_driver(struct cpufreq_driver *driver_data);
@@ -534,6 +553,12 @@ int __cpufreq_driver_target(struct cpufreq_policy *policy,
 				   unsigned int relation);
 unsigned int cpufreq_driver_resolve_freq(struct cpufreq_policy *policy,
 					 unsigned int target_freq);
+void cpufreq_driver_adjust_perf(unsigned int cpu,
+				unsigned long min_perf,
+				unsigned long target_perf,
+				unsigned long capacity);
+bool cpufreq_driver_has_adjust_perf(void);
+bool cpufreq_driver_test_flags(u16 flags);
 int cpufreq_register_governor(struct cpufreq_governor *governor);
 void cpufreq_unregister_governor(struct cpufreq_governor *governor);
 

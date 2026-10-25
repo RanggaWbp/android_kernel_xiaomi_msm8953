@@ -116,13 +116,13 @@ static bool poc_selector_skip;
  * SMT sibling selection via select_idle_smt(prev) and
  * nr_idle_scan-limited select_idle_cpu().
  *
- * When disabled (default), POC handles SMT sibling selection
+ * When disabled, POC handles SMT sibling selection
  * itself, trying prev's SMT sibling for cache locality, then
  * LLC-wide RR search for remaining idle CPUs.  Level 5/6 is
  * gated by nr_idle_scan (SIS_UTIL): when LLC utilization
  * exceeds ~85%, broader SMT search is skipped.
  */
-DEFINE_STATIC_KEY_FALSE(sched_poc_smt_fallback);
+DEFINE_STATIC_KEY_TRUE(sched_poc_smt_fallback);
 
 /*
  * SMT consecutive layout: sched_poc_smt_consecutive
@@ -165,9 +165,9 @@ DEFINE_STATIC_KEY_TRUE(sched_poc_smt_uniform);
  * it ran on last, keeping warm TLB/L1/L2 state.
  *
  * Checked after Level 0 (saturation) and before core_mask derivation.
- * Default: disabled.
+ * Default: enabled.
  */
-DEFINE_STATIC_KEY_FALSE(sched_poc_target_sticky);
+DEFINE_STATIC_KEY_TRUE(sched_poc_target_sticky);
 
 /*
  * Early select: sched_poc_early_select
@@ -273,15 +273,17 @@ DEFINE_STATIC_KEY_TRUE(sched_poc_rr_improved);
  * Switching via sysctl resyncs the newly-active representation
  * before readers can observe it.
  *
- * Default: disabled.
+ * Default: enabled.
  */
-DEFINE_STATIC_KEY_FALSE(sched_poc_lockless_bitmap);
+DEFINE_STATIC_KEY_TRUE(sched_poc_lockless_bitmap);
 
 /**************************************************************
  * Debug counters (sysctl kernel.sched_poc_count):
  *
  * Per-CPU counters for each selection level hit.
- * Guarded by static key — zero overhead when disabled (default).
+ * Guarded by static key — zero overhead when disabled.
+ * Default: enabled; set kernel.sched_poc_count=0 to drop the
+ * hot-path increment if the stats are not being read.
  * Aggregated across all CPUs and exposed via sysfs.
  */
 enum poc_level {
@@ -303,7 +305,7 @@ enum poc_level {
 
 #define POC_SMT_LEVEL_OFFSET (POC_LV5 - POC_LV2)
 
-DEFINE_STATIC_KEY_FALSE(sched_poc_count_enabled);
+DEFINE_STATIC_KEY_TRUE(sched_poc_count_enabled);
 
 static DEFINE_PER_CPU(unsigned long[POC_NR_LEVELS], poc_debug_cnt);
 

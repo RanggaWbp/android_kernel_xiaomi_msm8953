@@ -408,7 +408,7 @@ jobs:
             |---|---|
             | Kernel | Linux ${{ needs.build.outputs.kver }} (stable, EOL) |
             | Tree | LineageOS/CAF msm8953 (lineage-21) |
-            | Root | BakaSU (KernelSU fork, sync-susfs) @ ${{ needs.build.outputs.ksu_sha }} (${{ needs.build.outputs.bakasu_ver_name }}) |
+            | Root | BakaSU (KernelSU fork, main) @ ${{ needs.build.outputs.ksu_sha }} (${{ needs.build.outputs.bakasu_ver_name }}) |
             | BakaSU version code | ${{ needs.build.outputs.bakasu_ver_code }} |
             | BakaSU version name | ${{ needs.build.outputs.bakasu_ver_name }} |
             | Supported Managers | ${{ needs.build.outputs.bakasu_managers }} |

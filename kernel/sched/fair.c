@@ -6851,6 +6851,31 @@ static int select_idle_sibling(struct task_struct *p, int prev, int target)
 	schedstat_inc(p->se.statistics.nr_wakeups_sis_attempts);
 	schedstat_inc(this_rq()->eas_stats.sis_attempts);
 
+#ifdef CONFIG_SCHED_POC_SELECTOR
+	/*
+	 * POC Selector fast path: O(1) idle-CPU lookup via the per-LLC bitmap.
+	 * Purely additive — if the static key is off, the system is asymmetric,
+	 * or POC finds nothing (>=0 means "use this CPU"), we fall through to
+	 * the stock select_idle_sibling logic below unchanged.
+	 */
+	{
+		struct sched_domain_shared *sd_share =
+			rcu_dereference(per_cpu(sd_llc_shared, target));
+
+		if (static_branch_likely(&poc_selector_active) &&
+		    !poc_asym_cpucap_active() && sd_share &&
+		    likely(sd_share->poc_fast_eligible)) {
+			int poc_cpu = select_idle_cpu_poc(target, prev, -1, 0,
+							  sd_share,
+							  tsk_cpus_allowed(p));
+			if (poc_cpu >= 0) {
+				schedstat_inc(p->se.statistics.nr_wakeups_sis_idle);
+				return poc_cpu;
+			}
+		}
+	}
+#endif /* CONFIG_SCHED_POC_SELECTOR */
+
 	if (!sysctl_sched_cstate_aware) {
 		if (idle_cpu(target)) {
 			schedstat_inc(p->se.statistics.nr_wakeups_sis_idle);

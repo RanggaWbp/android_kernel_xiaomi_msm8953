@@ -744,6 +744,9 @@ struct rq {
 	struct load_weight load;
 	unsigned long nr_load_updates;
 	u64 nr_switches;
+#ifdef CONFIG_SCHED_POC_SELECTOR
+	unsigned int poc_idle_committed;
+#endif
 
 	struct cfs_rq cfs;
 	struct rt_rq rt;
@@ -1231,6 +1234,107 @@ static inline void unregister_sched_domain_sysctl(void)
 static inline void sched_ttwu_pending(void) { }
 
 #endif /* CONFIG_SMP */
+
+#ifdef CONFIG_SCHED_POC_SELECTOR
+/*
+ * POC Selector (poc-selector 6.18 backport to 4.9).
+ * Runtime gate: static key poc_selector_active + sysctl kernel.sched_poc_selector.
+ * Default at boot is INACTIVE (static key FALSE, sysctl 0) so the boot path
+ * never depends on it; enable at runtime via
+ *   echo 1 > /proc/sys/kernel/sched_poc_selector
+ * poc_asym_cpucapacity replaces the 5.x sched_asym_cpucapacity static key and
+ * is enabled during sched-domain init when SD_ASYM_CPUCAPACITY is present.
+ */
+extern struct static_key_false poc_selector_active;
+extern struct static_key_false poc_asym_cpucapacity;
+/* Topology-tuning keys defined in kernel/sched/poc_selector.c and toggled
+ * from core.c during sched-domain init. */
+extern struct static_key_true sched_poc_aligned;
+extern struct static_key_true sched_poc_packed;
+extern struct static_key_true sched_poc_smt_consecutive;
+extern struct static_key_true sched_poc_smt_uniform;
+
+static __always_inline bool poc_asym_cpucap_active(void)
+{
+	return static_branch_unlikely(&poc_asym_cpucapacity);
+}
+
+extern void __set_cpu_idle_state_poc(int cpu, int state);
+static __always_inline void set_cpu_idle_state_poc(int cpu, int state)
+{
+	if (static_branch_likely(&poc_selector_active) &&
+	    !poc_asym_cpucap_active())
+		__set_cpu_idle_state_poc(cpu, state);
+}
+
+/* Fast-path selector implemented in kernel/sched/poc_selector.c */
+int select_idle_cpu_poc(int target, int prev, int recent, int sync,
+			struct sched_domain_shared *sd_share,
+			const struct cpumask *allowed);
+
+/*
+ * POC_CTZ64 - count trailing zeros (find first set bit), returns 64 for 0.
+ */
+#if defined(__x86_64__) && defined(__BMI__)
+#define POC_CTZ64(v) ((int)__builtin_ctzll(v))
+#elif defined(__aarch64__)
+#define POC_CTZ64(v) ((int)__builtin_ctzll(v))
+#elif defined(__riscv) && defined(__riscv_zbb)
+#define POC_CTZ64(v) ((int)__builtin_ctzll(v))
+#elif defined(__x86_64__)
+static __always_inline int poc_ctz64_bsf(u64 v)
+{
+	if (unlikely(!v))
+		return 64;
+	return (int)__builtin_ctzll(v);
+}
+#define POC_CTZ64(v) poc_ctz64_bsf(v)
+#else
+#define POC_DEBRUIJN_CTZ64_CONST 0x03F79D71B4CA8B09ULL
+static const u8 poc_debruijn_ctz64_tab[64] = {
+	 0,  1, 56,  2, 57, 49, 28,  3,
+	61, 58, 42, 50, 38, 29, 17,  4,
+	62, 47, 59, 36, 45, 43, 51, 22,
+	53, 39, 33, 30, 24, 18, 12,  5,
+	63, 55, 48, 27, 60, 41, 37, 16,
+	46, 35, 44, 21, 52, 32, 23, 11,
+	54, 26, 40, 15, 34, 20, 31, 10,
+	25, 14, 19,  9, 13,  8,  7,  6,
+};
+static __always_inline int poc_debruijn_ctz64(u64 v)
+{
+	u64 lsb;
+	u32 idx;
+
+	if (unlikely(!v))
+		return 64;
+	lsb = v & (-(s64)v);
+	idx = (u32)((lsb * POC_DEBRUIJN_CTZ64_CONST) >> 58);
+	return (int)poc_debruijn_ctz64_tab[idx & 63];
+}
+#define POC_CTZ64(v) poc_debruijn_ctz64(v)
+#endif /* POC_CTZ64 */
+
+/*
+ * Convert the 64-bit region of @mask for this LLC to POC-relative bits.
+ */
+static __always_inline u64 poc_cpumask_to_u64(const struct cpumask *mask,
+					      struct sched_domain_shared *sd_share)
+{
+	int base = sd_share->poc_cpu_base;
+	int base_word = base >> 6;
+	int shift = sd_share->poc_affinity_shift;
+
+	if (likely(shift == 0)) {
+		return cpumask_bits(mask)[base_word];
+	} else {
+		u64 lo = cpumask_bits(mask)[base_word];
+		u64 hi = (base_word + 1 < BITS_TO_LONGS(nr_cpumask_bits)) ?
+			 cpumask_bits(mask)[base_word + 1] : 0;
+		return (lo >> shift) | (hi << (64 - shift));
+	}
+}
+#endif /* CONFIG_SCHED_POC_SELECTOR */
 
 #include "stats.h"
 #include "auto_group.h"

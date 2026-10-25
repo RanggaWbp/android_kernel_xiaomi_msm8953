@@ -413,6 +413,26 @@ config SCHED_BORE
 	  less than long heavy background load, improving interactivity.
 	  Runtime kill-switch: echo 0 > /proc/sys/kernel/sched_bore
 
+config SCHED_POC_SELECTOR
+	bool "Piece-Of-Cake fast idle CPU selector"
+	depends on SMP
+	default y
+	help
+	  Idle CPU selector using cached per-LLC bitmaps inspired by the
+	  scx_cake BPF scheduler. Reduces select_idle_cpu overhead by using
+	  O(1) bitmap scanning instead of walking the LLC.
+
+	  This optimization does not affect scheduler fairness - it only
+	  speeds up finding an idle CPU for task wakeup, and it defers to
+	  the stock scheduler on asymmetric-capacity (big.LITTLE) systems.
+
+	  Safe default: it is compiled in but INACTIVE at boot. Enable at
+	  runtime with:
+	    echo 1 > /proc/sys/kernel/sched_poc_selector
+	  and disable again with echo 0 if any issue is observed.
+
+	  If unsure, say Y.
+
 config SCHED_WALT
         bool "Support window based load tracking"
         depends on SMP

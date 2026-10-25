@@ -1203,6 +1203,45 @@ struct sched_domain_shared {
 	atomic_t	ref;
 	atomic_t	nr_busy_cpus;
 	int		has_idle_cores;
+#ifdef CONFIG_SCHED_POC_SELECTOR
+	/*
+	 * POC Selector: per-LLC idle CPU tracking.
+	 * Added by the poc-selector 6.18 backport (kernel 4.9 adaptation).
+	 */
+	u64		poc_llc_members;	/* bitmask of valid CPUs (relative to base) */
+	int		poc_cpu_base;		/* smallest CPU ID in this LLC */
+	u8		poc_affinity_shift;	/* bit shift for cpumask alignment */
+	bool		poc_fast_eligible;	/* true when LLC CPU count <= 64 */
+	bool		poc_cluster_valid;	/* true when cluster mask is usable */
+#ifdef CONFIG_SCHED_SMT
+	u8		poc_smt_shift;		/* bit distance between SMT siblings */
+	u64		poc_primary_mask;	/* bitmask of core representative CPUs */
+#endif
+	/*
+	 * Hot write path: idle state flag arrays (lock-free mode).
+	 * Active only when sched_poc_lockless_bitmap=0.
+	 */
+	u8		poc_idle_cpus[64] ____cacheline_aligned;
+#ifdef CONFIG_SCHED_SMT
+	u8		poc_idle_cores[64] ____cacheline_aligned;
+#endif
+	/*
+	 * Hot read/write path: idle state bitmaps (bitmap mode, default).
+	 */
+	atomic64_t	poc_idle_cpus_mask ____cacheline_aligned;
+#ifdef CONFIG_SCHED_SMT
+	atomic64_t	poc_idle_cores_mask ____cacheline_aligned;
+#endif
+	/*
+	 * Read-only lookup tables (written once at init).
+	 */
+	u64		poc_cluster_mask[64] ____cacheline_aligned;
+#ifdef CONFIG_SCHED_SMT
+	u64		poc_smt_mask[64] ____cacheline_aligned;
+#endif
+	/* nr_idle_scan has no 4.9 equivalent; kept for source compatibility. */
+	int		nr_idle_scan;
+#endif /* CONFIG_SCHED_POC_SELECTOR */
 };
 
 struct sched_domain {

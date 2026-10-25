@@ -548,6 +548,18 @@ CLANG_FLAGS	+= $(call cc-option, -Wno-misleading-indentation)
 CLANG_FLAGS	+= $(call cc-option, -Wno-bool-operation)
 KBUILD_CFLAGS	+= $(CLANG_FLAGS)
 KBUILD_AFLAGS	+= $(CLANG_FLAGS)
+# CLANG_FLAGS carries --target= / --prefix= / --gcc-toolchain=, which decide the
+# architecture clang emits. It is NOT exported by default, so a sub-make that
+# reads $(CLANG_FLAGS) directly sees it empty and clang silently falls back to
+# the HOST target. BakaSU's preinit runner (kernel/tools/code_generation/
+# preinit_runner/preinit_runner.mk) does exactly that, and the result is an
+# x86-64 object (ELF EM 62) handed to the aarch64 linker:
+#   aarch64-linux-android-ld: .../preinit/runner.elf.o: Relocations in generic
+#     ELF (EM: 62)
+#   .../runner.elf.o: error adding symbols: File in wrong format
+# Export it so the sub-make inherits the assembled value. AS/LD/CC are already
+# exported above; CLANG_FLAGS was the missing one.
+export CLANG_FLAGS
 ifneq ($(LLVM),)
 KBUILD_CFLAGS += -fuse-ld=lld
 endif

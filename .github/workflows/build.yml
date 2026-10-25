@@ -413,7 +413,7 @@ jobs:
             | BakaSU version name | ${{ needs.build.outputs.bakasu_ver_name }} |
             | Supported Managers | ${{ needs.build.outputs.bakasu_managers }} |
             | SUSFS | inline hooks, susfs-compatible |
-            | Features | BORE scheduler, MGLRU page reclaim, NTSYNC (Wine/Proton), ADIOS I/O scheduler, BBRv3 congestion, NoMount, Baseband-guard LSM, Rekernel net monitor, DroidSpaces container, POC-selector (idle CPU, opt-in), Reflex cpufreq governor (opt-in) |
+            | Features | BORE scheduler, MGLRU page reclaim, NTSYNC (Wine/Proton), ADIOS I/O scheduler, BBRv3 congestion, NoMount, Baseband-guard LSM, Rekernel net monitor, DroidSpaces container, POC-selector (idle CPU, on), Reflex cpufreq governor (on, default gov) |
             | Boot image | `${{ needs.build.outputs.image }}` (DTB appended) |
             | Flasher | AnyKernel3 @ ${{ steps.rel.outputs.ak3_sha }} |
             | Commit | ${{ steps.rel.outputs.sha8 }} |

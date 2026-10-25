@@ -96,14 +96,15 @@ static int poc_one = 1;
  * Runtime control: poc_selector_active (static key)
  * Derived from: sched_poc_selector && !poc_selector_skip
  *
- * SAFE DEFAULT for the 4.9 backport: INACTIVE at boot. The static key starts
- * FALSE and sched_poc_selector starts false, so every POC hot path is a no-op
- * until the feature is explicitly enabled at runtime via
- *   echo 1 > /proc/sys/kernel/sched_poc_selector
- * which flips the key and resyncs the idle bitmaps. Boot never depends on it.
+ * DEFAULT: ACTIVE. The static key still starts FALSE so early boot never
+ * sees a half-built bitmap; sched_poc_sysctl_init() (a late_initcall) flips
+ * it on once the per-LLC geometry exists, honouring sched_poc_selector.
+ * Disable at runtime with
+ *   echo 0 > /proc/sys/kernel/sched_poc_selector
+ * which drops the key without touching the geometry.
  */
 DEFINE_STATIC_KEY_FALSE(poc_selector_active);
-static bool sched_poc_selector = false;
+static bool sched_poc_selector = true;
 static bool poc_selector_skip;
 
 /*
@@ -1534,6 +1535,16 @@ static int __init sched_poc_sysctl_init(void)
 	printk(KERN_INFO "%s %s by %s [CTZ: %s, PTSelect: %s]\n",
 		SCHED_POC_SELECTOR_PROGNAME, SCHED_POC_SELECTOR_VERSION,
 		SCHED_POC_SELECTOR_AUTHOR, POC_CTZ64_NAME, POC_PTSELECT_NAME);
+
+	/*
+	 * The static key starts FALSE (DEFINE_STATIC_KEY_FALSE) so the early
+	 * boot paths never see a half-built bitmap. Now that the per-LLC
+	 * geometry exists, honour the compiled-in default of sched_poc_selector
+	 * and flip the key if it is on. No-op when the default is false.
+	 */
+	get_online_cpus();
+	poc_reevaluate_active();
+	put_online_cpus();
 
 	register_sysctl("kernel", sched_poc_sysctls);
 	return 0;

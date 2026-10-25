@@ -130,6 +130,19 @@ config CPU_FREQ_DEFAULT_GOV_SCHEDUTIL
 	  have a look at the help section of that governor. The fallback
 	  governor will be 'performance'.
 
+config CPU_FREQ_DEFAULT_GOV_REFLEX
+	bool "reflex"
+	depends on SMP
+	select CPU_FREQ_GOV_REFLEX
+	select CPU_FREQ_GOV_PERFORMANCE
+	help
+	  Use the 'reflex' CPUFreq governor by default. It behaves like
+	  schedutil but adds a measured fast path for rising load, so a
+	  CPU that has had no idle in an interval is driven to the
+	  frequency that best trades latency against energy instead of
+	  waiting for PELT to ramp up. The fallback governor is
+	  'performance'.
+
 endchoice
 
 config CPU_FREQ_GOV_PERFORMANCE

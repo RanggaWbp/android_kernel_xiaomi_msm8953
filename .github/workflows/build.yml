@@ -304,6 +304,7 @@ jobs:
           IMAGE_NAME: ${{ steps.img.outputs.image }}
           KERNEL_STRING: ${{ steps.meta.outputs.kernel_string }}
           BUILD_DATE: ${{ steps.meta.outputs.build_date }}
+          BUILD_TS: ${{ steps.meta.outputs.build_ts }}
         run: |
           set -eo pipefail
           if [ ! -f "out/arch/arm64/boot/$IMAGE_NAME" ]; then
@@ -312,6 +313,15 @@ jobs:
           fi
           # install the tissot AnyKernel3 script over the submodule's stock one
           cp ci/anykernel-tissot.sh anykernel/anykernel.sh
+          # Real build timestamp, injected so the AnyKernel banner never has to
+          # guess. Without this the property stays empty and the script falls
+          # back to the mtime of anykernel.sh inside the zip, which is whatever
+          # the recovery/filesystem happens to report (users saw "2020").
+          sed -i "s#^kernel\. build_date=.*#kernel. build_date=${BUILD_TS}#" anykernel/anykernel.sh
+          if ! grep -qxF "kernel. build_date=${BUILD_TS}" anykernel/anykernel.sh; then
+            echo ":: error::kernel. build_date injection failed"
+            exit 1
+          fi
           # kernel. string is derived from real sources (kernel + BakaSU submodule), never hardcoded
           sed -i "s#^kernel. string=.*#kernel. string=${KERNEL_STRING}#" anykernel/anykernel.sh
           if ! grep -qxF "kernel. string=${KERNEL_STRING}" anykernel/anykernel.sh; then

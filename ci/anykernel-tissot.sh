@@ -76,13 +76,30 @@ ks="$(file_getprop "$script_file" "kernel. string" 2>/dev/null)";
 
 feats="$(file_getprop "$script_file" "kernel. features" 2>/dev/null)";
 
-# build date: CI-injected "kernel.build_date" wins, else the packaging time of
-# this script inside the zip (build time in CI), else a plain CI marker
-build_date="$(file_getprop "$script_file" "kernel. build_date" 2>/dev/null)";
+# Build timestamp. CI injects the real value into "kernel. build_date" at packaging
+# time, so that is the authoritative path.
+#
+# The old fallback was `date -r "$script_file"` - the mtime of anykernel.sh as
+# extracted from the zip. That is NOT the build time; it is whatever the
+# recovery filesystem happens to report for the extracted file, and users were
+# shown bogus years (e. 2020). Do not reintroduce an mtime fallback: if the CI
+# injection is missing, say so instead of printing a wrong date.
+build_date="$(file_getprop "$script_file" "kernel. build_date" 2>/dev/null)"
 if [ -z "$build_date" ]; then
-build_date="$(date -r "$script_file" "+%Y-%m-%d %H:%M UTC" 2>/dev/null)";
-fi;
-[ -n "$build_date" ] || build_date="built by CI";
+build_date="unknown (build timestamp not injected)"
+else
+# CI writes ISO-8601 UTC, e. 2026-10-25T12:45:39.123456789Z.
+# Render it as "2026-10-25 12:45:39 UTC": drop fraction and Z, split on T.
+_bd="${build_date%%.*}"
+_bd="${_bd%Z}"
+_d="${_bd%%T*}"
+_t="${_bd#*T}"
+if [ "$_t" != "$_d" ]; then
+build_date="$_d $_t UTC"
+else
+build_date="$_d UTC"
+fi
+fi
 
 # split "tissot-<kver>|<root base>|<root ver>|g<sha8>" with sane fallbacks
 kver="${ks%%|*}";

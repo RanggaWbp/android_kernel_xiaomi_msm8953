@@ -131,7 +131,8 @@ jobs:
           FEATURES=""
           for f in SCHED_BORE:BORE LRU_GEN:MGLRU NTSYNC:NTSYNC \
                    IOSCHED_ADIOS:ADIOS TCP_CONG_BBR3:BBRv3 NOMOUNT:NoMount \
-                   BBG:Baseband-guard REKERNEL:Rekernel; do
+                   BBG:Baseband-guard REKERNEL:Rekernel \
+                   SCHED_POC_SELECTOR:POC-selector CPU_FREQ_GOV_REFLEX:Reflex; do
             sym="${f%%:*}"
             name="${f##*:}"
             if grep -q "^CONFIG_${sym}=y" "$O/.config" 2>/dev/null; then

@@ -8402,6 +8402,9 @@ enum group_type {
 
 #define LBF_ALL_PINNED	0x01
 #define LBF_NEED_BREAK	0x02
+/* This balance operation has detached at least one task. Sticky across the
+ * more_balance retries, so it reflects the whole operation, not one scan. */
+#define LBF_MOVED		0x20
 #define LBF_DST_PINNED  0x04
 #define LBF_SOME_PINNED	0x08
 #define LBF_BIG_TASK_ACTIVE_BALANCE 0x80
@@ -8688,9 +8691,68 @@ static const unsigned int sched_nr_migrate_break = 32;
  *
  * Returns number of detached tasks if successful and 0 otherwise.
  */
+#define SCHED_CAMBYSES_AUTHOR	"Masahito Suzuki"
+#define SCHED_CAMBYSES_PROGNAME	"Cambyses CFS Load Balancer modification"
+#define SCHED_CAMBYSES_VERSION	"0.6.0"
+
+static int __init sched_cambyses_init(void)
+{
+	printk(KERN_INFO "%s %s by %s\n",
+		SCHED_CAMBYSES_PROGNAME, SCHED_CAMBYSES_VERSION,
+		SCHED_CAMBYSES_AUTHOR);
+
+	return 0;
+}
+late_initcall(sched_cambyses_init);
+
+/*
+ * The cheapest candidate a scan passed over because it did not fit the
+ * remaining imbalance budget.  If the scan ends up taking nothing at all,
+ * detach_tasks() concedes to this one so the balance still makes progress.
+ *
+ * Scoped to a single detach_tasks() call on purpose: the rq lock is dropped
+ * between the caller's more_balance retries, so a task remembered across them
+ * could be gone by the time it is used.
+ */
+struct lb_concession {
+	struct task_struct	*p;
+	unsigned long		cost;
+};
+
+/*
+ * Does moving @p, costing @cost, fit the remaining imbalance budget?
+ *
+ * LB_STRICT_BUDGET compares directly and notes the smallest overshoot seen so
+ * far.  The 4.9 tree has no shr_bound()/nr_balance_failed relaxation to drop
+ * (that arrived later); what it does have is the big-task guard below, which
+ * is the only thing that can keep an over-budget task from ever moving, since
+ * this tree's active-balance escalation is for migrate_task only.  So the
+ * concession is what guarantees progress here.
+ *
+ * With the feature off this is a plain "cost <= imbalance" test and no
+ * overshoot is remembered.
+ */
+static bool lb_cost_fits(struct lb_env *env, struct lb_concession *concession,
+			 struct task_struct *p, unsigned long cost)
+{
+	if (!sched_feat(LB_STRICT_BUDGET))
+		return cost <= env->imbalance;
+
+	if (cost <= env->imbalance)
+		return true;
+
+	if (!concession->p || cost < concession->cost) {
+		concession->p = p;
+		concession->cost = cost;
+	}
+
+	return false;
+}
+
 static int detach_tasks(struct lb_env *env)
 {
 	struct list_head *tasks = &env->src_rq->cfs_tasks;
+	struct lb_concession concession = { NULL, 0 };
 	struct task_struct *p;
 	unsigned long load;
 	int detached = 0;
@@ -8754,14 +8816,21 @@ redo:
 		 * there is situation to ignore big task, it is needed
 		 * to skip the task load bigger than 2*imbalance.
 		 */
+		/*
+		 * Make sure that we don't migrate too much load.  The 4.9 tree halves
+		 * the cost before comparing; keep that, but go through
+		 * lb_cost_fits() so LB_STRICT_BUDGET can remember the cheapest
+		 * overshoot for the concession below.
+		 */
 		if (((cpu_rq(env->src_cpu)->nr_running > 2) ||
 			(env->flags & LBF_IGNORE_BIG_TASKS)) &&
-			((load / 2) > env->imbalance))
+			!lb_cost_fits(env, &concession, p, load / 2))
 			goto next;
 
 		detach_task(p, env);
 		list_add(&p->se.group_node, &env->tasks);
 
+		env->flags |= LBF_MOVED;
 		detached++;
 		env->imbalance -= load;
 
@@ -8794,6 +8863,34 @@ next:
 				LBF_IGNORE_PREFERRED_CLUSTER_TASKS);
 		env->loop = orig_loop;
 		goto redo;
+	}
+
+	/*
+	 * Nothing fit the budget and nothing has moved yet, so concede to the
+	 * smallest overshoot the scan found rather than leave the imbalance
+	 * standing.
+	 *
+	 * Placed AFTER the redo check above on purpose: when the IGNORE_* flags
+	 * are still set this tree retries the whole scan without the big-task
+	 * filter, and conceding first would make detached non-zero and cancel
+	 * that retry.
+	 *
+	 * LBF_MOVED is sticky across the caller's more_balance retries, so this
+	 * fires at most once per balance operation.  concession->p is still on
+	 * cfs_tasks - every remembered candidate was skipped via goto next,
+	 * which only rotates it - and it already passed can_migrate_task(),
+	 * because lb_cost_fits() runs after that check.
+	 *
+	 * concession->cost is the halved load the guard compared against, so it
+	 * is what gets subtracted here; the normal path subtracts the full load.
+	 */
+	if (concession.p && !(env->flags & LBF_MOVED)) {
+		detach_task(concession.p, env);
+		list_add(&concession.p->se.group_node, &env->tasks);
+
+		env->imbalance -= concession.cost;
+		env->flags |= LBF_MOVED;
+		detached++;
 	}
 
 	/*

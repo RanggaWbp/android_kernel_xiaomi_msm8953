@@ -140,13 +140,15 @@ jobs:
             fi
           done
           FEATURES="${FEATURES%, }"
-          echo "${BUILD_TS} -- Kernel features: ${FEATURES:-none}"
             # Cambyses has no CONFIG_ symbol - it is a SCHED_FEAT that is always
             # compiled in, so detect it from the source the build actually used.
+            # The CONFIG_-driven loop above reads out/.config, which does not
+            # exist yet at this point (Configure defconfig runs later), so only
+            # this source-based entry can be reported from here.
             if grep -q 'SCHED_FEAT(LB_STRICT_BUDGET' kernel/sched/features.h; then
-              FEATURES="${FEATURES}, Cambyses"
-              echo "${BUILD_TS} -- Kernel features: ${FEATURES}"
+              if [ -n "$FEATURES" ]; then FEATURES="$FEATURES, Cambyses"; else FEATURES="Cambyses"; fi
             fi
+            echo "${BUILD_TS} -- Kernel features: ${FEATURES:-none}"
 
       - name: Fetch toolchains (primary + fallback mirrors)
         run: |

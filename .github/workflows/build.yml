@@ -141,6 +141,12 @@ jobs:
           done
           FEATURES="${FEATURES%, }"
           echo "${BUILD_TS} -- Kernel features: ${FEATURES:-none}"
+            # Cambyses has no CONFIG_ symbol - it is a SCHED_FEAT that is always
+            # compiled in, so detect it from the source the build actually used.
+            if grep -q 'SCHED_FEAT(LB_STRICT_BUDGET' kernel/sched/features.h; then
+              FEATURES="${FEATURES}, Cambyses"
+              echo "${BUILD_TS} -- Kernel features: ${FEATURES}"
+            fi
 
       - name: Fetch toolchains (primary + fallback mirrors)
         run: |
@@ -425,6 +431,7 @@ jobs:
             | SUSFS | inline hooks, susfs-compatible |
             | Features | BORE scheduler, MGLRU page reclaim, NTSYNC (Wine/Proton), ADIOS I/O scheduler, BBRv3 congestion, NoMount, Baseband-guard LSM, Rekernel net monitor, DroidSpaces container, POC-selector (idle CPU, on), Reflex cpufreq governor (on, default gov) |
             | Boot image | `${{ needs.build.outputs.image }}` (DTB appended) |
+            | Scheduler | Cambyses CFS balancer (LB_STRICT_BUDGET), BORE, POC-selector |
             | Flasher | AnyKernel3 @ ${{ steps.rel.outputs.ak3_sha }} |
             | Commit | ${{ steps.rel.outputs.sha8 }} |
             | Build date (UTC) | ${{ needs.build.outputs.build_ts }} |

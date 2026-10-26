@@ -431,12 +431,46 @@ jobs:
             | BakaSU version name | ${{ needs.build.outputs.bakasu_ver_name }} |
             | Supported Managers | ${{ needs.build.outputs.bakasu_managers }} |
             | SUSFS | inline hooks, susfs-compatible |
-            | Features | BORE scheduler, MGLRU page reclaim, NTSYNC (Wine/Proton), ADIOS I/O scheduler, BBRv3 congestion, NoMount, Baseband-guard LSM, Rekernel net monitor, DroidSpaces container, POC-selector (idle CPU, on), Reflex cpufreq governor (on, default gov) |
             | Boot image | `${{ needs.build.outputs.image }}` (DTB appended) |
-            | Scheduler | Cambyses CFS balancer (LB_STRICT_BUDGET), BORE, POC-selector |
             | Flasher | AnyKernel3 @ ${{ steps.rel.outputs.ak3_sha }} |
             | Commit | ${{ steps.rel.outputs.sha8 }} |
             | Build date (UTC) | ${{ needs.build.outputs.build_ts }} |
+
+            ### Features
+
+            **Scheduler**
+            - BORE — EEVDF burst-aware vruntime
+            - Cambyses — CFS load balancer (`LB_STRICT_BUDGET`)
+            - POC-selector — per-LLC idle CPU tracking, on
+
+            **Memory**
+            - MGLRU — multi-gen LRU page reclaim
+
+            **I/O**
+            - ADIOS — adaptive deadline, default scheduler
+
+            **CPU frequency**
+            - Reflex — governor, default
+
+            **Networking**
+            - BBRv3 — congestion control, default
+
+            **Sync**
+            - NTSYNC — NT sync primitives (Wine/Proton)
+
+            **Root & hiding**
+            - BakaSU — KernelSU fork, multi-manager
+            - SUSFS — path + mount hiding
+            - NoMount — VFS hiding, off by default
+
+            **Security**
+            - Baseband-guard — LSM
+
+            **Monitoring**
+            - Rekernel — net monitor
+
+            **Containers**
+            - DroidSpaces
 
             **Flash:** TWRP/OrangeFox or any kernel-flasher app → install the zip. Mi A1 is A-only, so there is no second slot to switch to.
 

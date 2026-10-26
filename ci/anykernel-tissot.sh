@@ -18,7 +18,7 @@ device.name5=
 supported.versions=
 supported.patchlevels=
 supported.vendorpatchlevels=
-kernel. features=Linux 4.337 stable EOL|BakaSU root (KernelSU fork)|SUSFS (path + mount hide)|NoMount VFS hide (default off)|Baseband-guard LSM|Rekernel net monitor|DroidSpaces container|BORE CPU scheduler|MGLRU page reclaim|NTSYNC (Wine/Proton)|ADIOS I/O scheduler|BBRv3 congestion|POC selector (idle CPU)|Reflex governor|Cambyses CFS balancer
+kernel. features=Scheduler: BORE, Cambyses, POC-selector|Memory: MGLRU|I/O: ADIOS (default)|CPUfreq: Reflex (default)|Net: BBRv3 (default)|Sync: NTSYNC|Root: BakaSU, SUSFS, NoMount (off)|Security: Baseband-guard|Monitor: Rekernel|Container: DroidSpaces
 kernel. build_date=
 '; } # end properties
 
@@ -149,4 +149,4 @@ print_banner;
 dump_boot; # use split_boot to skip ramdisk unpack, e.g. for devices with init_boot ramdisk
 
 write_boot; # use flash_boot to skip ramdisk repack, e.g. for devices with init_boot ramdisk
-## end boot install
+## end boot installkernel. features=Scheduler: BORE, Cambyses, POC-selector|Memory: MGLRU|I/O: ADIOS (default)|CPUfreq: Reflex (default)|Net: BBRv3 (default)|Sync: NTSYNC|Root: BakaSU, SUSFS, NoMount (off)|Security: Baseband-guard|Monitor: Rekernel|Container: DroidSpaces

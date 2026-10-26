@@ -78,6 +78,24 @@ SCHED_FEAT(RT_PUSH_IPI, true)
 SCHED_FEAT(FORCE_SD_OVERLAP, false)
 SCHED_FEAT(RT_RUNTIME_SHARE, true)
 SCHED_FEAT(LB_MIN, false)
+/*
+ * Compare a migration candidate's cost against the remaining imbalance budget
+ * directly, instead of only halving it and comparing.
+ *
+ * The upstream (6.12) relaxation this replaces shrinks a candidate's apparent
+ * cost once per recorded balance failure, so a task larger than the budget is
+ * eventually let through.  That relaxation does not exist on this 4.9 tree;
+ * what does exist is the big-task guard in detach_tasks(), which is the only
+ * thing that can keep an over-budget task from ever moving (this tree's
+ * active-balance escalation covers migrate_task only).  Dropping it outright
+ * would strand such a task, so detach_tasks() replaces the guarantee with an
+ * explicit one: a scan that admits nothing concedes to the smallest overshoot
+ * it saw.
+ *
+ * Turn off for a plain "cost <= imbalance" test with no concession.
+ */
+SCHED_FEAT(LB_STRICT_BUDGET, true)
+
 SCHED_FEAT(ATTACH_AGE_LOAD, true)
 
 /*

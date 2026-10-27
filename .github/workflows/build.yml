@@ -292,6 +292,48 @@ jobs:
             CROSS_COMPILE_ARM32="$PWD/tc/gcc-32/bin/arm-linux-androideabi-" \
             -j"$(nproc)" "$IMAGE_NAME"
 
+      - name: LZ4KDR zram backend gate (hard)
+        run: |
+          set -eo pipefail
+          # Hard gate: replaces the local compile check we deliberately do not run.
+          # A symbol silently dropped by a Kconfig dependency miss still reads
+          # =y in .config, so only the object assertions are proof.
+          if ! grep -q '^CONFIG_CRYPTO_LZ4KDR=y' out/.config; then
+            echo ":: error::CONFIG_CRYPTO_LZ4KDR is not =y in the settled config - the zram backend is not built"
+            exit 1
+          fi
+          echo "::notice::CONFIG_CRYPTO_LZ4KDR=y present"
+          if ! grep -q '^CONFIG_LZ4KDR_COMPRESS=y' out/.config; then
+            echo ":: error::CONFIG_LZ4KDR_COMPRESS is not =y (crypto/Kconfig select failed)"
+            exit 1
+          fi
+          if ! grep -q '^CONFIG_LZ4KDR_DECOMPRESS=y' out/.config; then
+            echo ":: error::CONFIG_LZ4KDR_DECOMPRESS is not =y (crypto/Kconfig select failed)"
+            exit 1
+          fi
+          for obj in out/crypto/lz4kdr.o out/lib/lz4kdr/lz4kdr_encode.o out/lib/lz4kdr/lz4kdr_decode.o; do
+            if [ ! -f "$obj" ]; then
+              echo ":: error::missing build object: $obj"
+              exit 1
+            fi
+            echo "::notice::built $obj"
+          done
+          # =y must stay built-in: a .ko means something flipped it to =m and
+          # the zram backend list would lose the entry.
+          for obj in out/crypto/lz4kdr.o out/lib/lz4kdr/lz4kdr_encode.o out/lib/lz4kdr/lz4kdr_decode.o; do
+            if [ -f "${obj%.o}.ko" ]; then
+              echo ":: error::$obj was built as a module (.ko present) - the zram backend would not be registered"
+              exit 1
+            fi
+          done
+          # The port must not have changed the default compressor.
+          if ! grep -q '^CONFIG_CRYPTO_LZ4=y' out/.config; then
+            echo ":: error::CONFIG_CRYPTO_LZ4 lost its =y - the existing lz4 default was disturbed"
+            exit 1
+          fi
+          echo "::notice::CONFIG_CRYPTO_LZ4=y still present (lz4 default intact)"
+
+
       - name: KSU / SUSFS symbol gate (warn-only)
         run: |
           set -eo pipefail
@@ -457,6 +499,9 @@ jobs:
 
             **Sync**
             - NTSYNC — NT sync primitives (Wine/Proton)
+            
+            **Zram compression**
+            - LZ4KDR — zram backend, selectable; lz4 stays the default
 
             **Root & hiding**
             - BakaSU — KernelSU fork, multi-manager

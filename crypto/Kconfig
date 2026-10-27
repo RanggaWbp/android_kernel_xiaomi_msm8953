@@ -1636,6 +1636,20 @@ config CRYPTO_LZ4
 	help
 	  This is the LZ4 algorithm.
 
+config CRYPTO_LZ4KDR
+	tristate "LZ4KDR compression algorithm"
+	select CRYPTO_ALGAPI
+	select LZ4KDR_COMPRESS
+	select LZ4KDR_DECOMPRESS
+	help
+	  This is the LZ4KDR algorithm, a speed-tuned derivative of
+	  Huawei's LZ4KD. It keeps LZ4KD's on-wire format, so its
+	  compressed bitstream is byte-for-byte compatible with the
+	  unmodified LZ4KD decoder. It is renamed from lz4kd to lz4kdr so
+	  it is not mistaken for an unmodified import of Huawei's original
+	  code; all credit for the underlying algorithm and format belongs
+	  to them.
+
 config CRYPTO_LZ4HC
 	tristate "LZ4HC compression algorithm"
 	select CRYPTO_ALGAPI

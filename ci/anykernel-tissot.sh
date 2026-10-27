@@ -18,7 +18,7 @@ device.name5=
 supported.versions=
 supported.patchlevels=
 supported.vendorpatchlevels=
-kernel. features=Scheduler: BORE, Cambyses, POC-selector|Memory: MGLRU|I/O: ADIOS (default)|CPUfreq: Reflex (default)|Net: BBRv3 (default)|Sync: NTSYNC|Root: BakaSU, SUSFS, NoMount (off)|Security: Baseband-guard|Monitor: Rekernel|Container: DroidSpaces
+kernel. features=Scheduler: BORE, Cambyses, POC-selector|Memory: MGLRU|I/O: ADIOS (default)|CPUfreq: Reflex (default)|Net: BBRv3 (default)|Sync: NTSYNC|Zram: lz4 default, lz4kdr selectable|Root: BakaSU, SUSFS, NoMount (off)|Security: Baseband-guard|Monitor: Rekernel|Container: DroidSpaces
 kernel. build_date=
 '; } # end properties
 

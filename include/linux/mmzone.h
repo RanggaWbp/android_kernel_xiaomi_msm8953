@@ -246,12 +246,15 @@ struct mem_cgroup;
 
 /*
  * For each lruvec, evictable pages are divided into multiple generations. The
- * youngest and the oldest generation numbers, AKA max_seq and min_seq, are
- * monotonically increasing. The sliding window technique is used to track at
- * least MIN_NR_GENS and at most MAX_NR_GENS generations. An offset within the
- * window, AKA gen, indexes an array of per-type and per-zone lists for the
- * corresponding generation. The counter in page->flags stores gen+1 while a
- * page is on one of the multigenerational lru lists. Otherwise, it stores 0.
+ * youngest generation numbers, AKA max_seq[], are per type so that anon and
+ * file can be aged independently of each other. The oldest generation numbers
+ * are stored in min_seq[] separately for anon and file types so that they can
+ * be incremented independently. Both are monotonically increasing. The sliding
+ * window technique is used to track at least MIN_NR_GENS and at most
+ * MAX_NR_GENS generations per type. An offset within the window, AKA gen,
+ * indexes an array of per-type and per-zone lists for the corresponding
+ * generation. The counter in page->flags stores gen+1 while a page is on one
+ * of the multigenerational lru lists. Otherwise, it stores 0.
  *
  * After a page is faulted in, the aging must check the accessed bit at least
  * twice before the eviction would consider it. The first check clears the
@@ -293,12 +296,12 @@ struct mem_cgroup;
 #endif
 
 struct lrugen {
-	/* the aging increments the max generation number */
-	unsigned long max_seq;
-	/* the eviction increments the min generation numbers */
+	/* the aging increments the youngest generation numbers */
+	unsigned long max_seq[ANON_AND_FILE];
+	/* the eviction increments the oldest generation numbers */
 	unsigned long min_seq[ANON_AND_FILE];
-	/* the birth time of each generation in jiffies */
-	unsigned long timestamps[MAX_NR_GENS];
+	/* the birth time of each generation in jiffies, per type */
+	unsigned long timestamps[ANON_AND_FILE][MAX_NR_GENS];
 	/* the multigenerational lru lists */
 	struct list_head lists[MAX_NR_GENS][ANON_AND_FILE][MAX_NR_ZONES];
 	/* the sizes of the multigenerational lru lists in pages */
@@ -333,20 +336,26 @@ enum {
 #define NR_BLOOM_FILTERS	2
 
 struct lru_gen_mm_walk {
-	/* set to max_seq after each round of walk */
-	unsigned long seq;
-	/* the next mm_struct on the list to walk */
-	struct list_head *head;
-	/* the first mm_struct never walked before */
-	struct list_head *tail;
+	/* synced with max_seq[] after each round of walk, per type */
+	unsigned long seq[ANON_AND_FILE];
+	/* the next mm_struct on the list to walk, per type */
+	struct list_head *head[ANON_AND_FILE];
+	/* the first mm_struct never walked before, per type */
+	struct list_head *tail[ANON_AND_FILE];
 	/* to wait for the last walker to finish */
 	wait_queue_head_t wait;
 	/* bloom filters flip after each round of walk */
 	unsigned long *filters[NR_BLOOM_FILTERS];
 	/* page table stats for debugging */
 	unsigned long stats[NR_HIST_GENS][NR_MM_STATS];
-	/* the number of concurrent walkers */
-	int nr_walkers;
+	/*
+	 * The number of concurrent walkers, per type. The aging cursors above
+	 * are per type as well, so the walker reference count has to be too:
+	 * it decides which walker of a type is the last one out and therefore
+	 * the one that hands its finished round to inc_max_seq(). A walker of
+	 * the other type must not be able to hold that handoff up.
+	 */
+	int nr_walkers[ANON_AND_FILE];
 };
 
 #define MIN_BATCH_SIZE		64
@@ -354,7 +363,21 @@ struct lru_gen_mm_walk {
 
 struct mm_walk_args {
 	struct mem_cgroup *memcg;
+	/*
+	 * max_seq of the type being aged. It is deliberately a scalar and
+	 * not an array: one walk ages exactly one type (see aging_type
+	 * below), so this is that type's target generation. Upstream 7.1
+	 * indexes its transient walk->seq[] the same way.
+	 */
 	unsigned long max_seq;
+	/*
+	 * Which type this walk is aging. 0 for anon, 1 for file -- this
+	 * port has no LRU_GEN_ANON / LRU_GEN_FILE enum. Set by
+	 * try_to_inc_max_seq() before any walker runs, and read by
+	 * should_skip_vma()/should_skip_mm() to gate the walk on that
+	 * type alone.
+	 */
+	int aging_type;
 	unsigned long start_pfn;
 	unsigned long end_pfn;
 	unsigned long next_addr;

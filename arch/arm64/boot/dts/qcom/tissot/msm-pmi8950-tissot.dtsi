@@ -46,6 +46,7 @@
 			qcom,charge-unknown-battery;
 			/delete-property/ qcom,autoadjust-vfloat;
 			qcom,override-usb-current;
+			qcom,fastchg-current-ma = <3000>;
 			qcom,fastchg-current-comp = <900>;
 			qcom,float-voltage-comp = <15>;
 

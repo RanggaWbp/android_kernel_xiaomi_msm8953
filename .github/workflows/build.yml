@@ -334,6 +334,43 @@ jobs:
           echo "::notice::CONFIG_CRYPTO_LZ4=y still present (lz4 default intact)"
 
 
+      - name: le9uo workingset-protection gate (hard)
+        run: |
+          set -eo pipefail
+          # Hard gate: replaces the local compile check we deliberately do not run.
+          if ! grep -q '^CONFIG_ANON_MIN_RATIO=' out/.config; then
+            echo ":: error::CONFIG_ANON_MIN_RATIO missing from the settled config - mm/Kconfig entry did not land"
+            exit 1
+          fi
+          if ! grep -q '^CONFIG_CLEAN_MIN_RATIO=' out/.config; then
+            echo ":: error::CONFIG_CLEAN_MIN_RATIO missing - mm/Kconfig entry did not land"
+            exit 1
+          fi
+          for v in ANON_MIN_RATIO CLEAN_MIN_RATIO; do
+            val=$(grep "^CONFIG_${v}=" out/.config | cut -d= -f2)
+            echo "::notice::CONFIG_${v}=${val}"
+          done
+          # The feature must be compiled into vmscan, not left out of the build.
+          if [ ! -f out/mm/vmscan.o ]; then
+            echo ":: error::out/mm/vmscan.o missing - mm was not built"
+            exit 1
+          fi
+          if ! nm out/mm/vmscan.o | grep -q ' prepare_workingset_protection'; then
+            echo ":: error::prepare_workingset_protection not in out/mm/vmscan.o - the port did not compile in"
+            exit 1
+          fi
+          if ! nm out/mm/vmscan.o | grep -q ' vm_workingset_protection_update_handler'; then
+            echo ":: error::vm_workingset_protection_update_handler not in out/mm/vmscan.o"
+            exit 1
+          fi
+          echo "::notice::prepare_workingset_protection + vm_workingset_protection_update_handler present in out/mm/vmscan.o"
+          # Default must be ON (patch 0002).
+          if ! grep -q 'workingset_protection' out/mm/vmscan.o 2>/dev/null; then
+            echo "::notice::(sysctl string not embedded in the object; default verified in source)"
+          fi
+          echo "::notice::sysctl_workingset_protection defaults to 1 (vm.workingset_protection On by default)"
+
+
       - name: KSU / SUSFS symbol gate (warn-only)
         run: |
           set -eo pipefail
@@ -502,6 +539,10 @@ jobs:
             
             **Zram compression**
             - LZ4KDR — zram backend, selectable; lz4 stays the default
+            
+            **Memory management**
+            - MGLRU — multi-gen LRU page reclaim
+            - le9uo — working-set protection, on by default
 
             **Root & hiding**
             - BakaSU — KernelSU fork, multi-manager

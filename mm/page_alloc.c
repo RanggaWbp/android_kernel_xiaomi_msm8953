@@ -6706,6 +6706,7 @@ void __init mem_init_print_info(const char *str)
 		totalhigh_pages << (PAGE_SHIFT - 10),
 #endif
 		str ? ", " : "", str ? str : "");
+	pr_info("le9 Unofficial (le9uo) working set protection 1.15 by Masahito Suzuki (forked from hakavlad's original le9 patch)\n");
 }
 
 /**

@@ -547,7 +547,7 @@ jobs:
             **Root & hiding**
             - BakaSU — KernelSU fork, multi-manager
             - SUSFS — path + mount hiding
-            - NoMount — VFS hiding, off by default
+            - NoMount — VFS path redirection, activates when a module pushes rules
 
             **Security**
             - Baseband-guard — LSM

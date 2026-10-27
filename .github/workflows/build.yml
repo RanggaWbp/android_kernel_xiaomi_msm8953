@@ -148,6 +148,12 @@ jobs:
             if grep -q 'SCHED_FEAT(LB_STRICT_BUDGET' kernel/sched/features.h; then
               if [ -n "$FEATURES" ]; then FEATURES="$FEATURES, Cambyses"; else FEATURES="Cambyses"; fi
             fi
+            # Re-swappiness has no CONFIG_ symbol (it is part of MGLRU), so
+            # detect it from the source the build actually used: the per-type
+            # max_seq[] array in struct lrugen is its signature.
+            if grep -q 'max_seq\[ANON_AND_FILE\]' include/linux/mmzone.h; then
+              if [ -n "$FEATURES" ]; then FEATURES="$FEATURES, Re-swappiness"; else FEATURES="Re-swappiness"; fi
+            fi
             echo "${BUILD_TS} -- Kernel features: ${FEATURES:-none}"
 
       - name: Fetch toolchains (primary + fallback mirrors)
@@ -371,6 +377,25 @@ jobs:
           echo "::notice::sysctl_workingset_protection defaults to 1 (vm.workingset_protection On by default)"
 
 
+      - name: Re-swappiness gate (hard)
+        run: |
+          set -eo pipefail
+          # Hard gate: the independent anon/file aging port must be compiled in.
+          if ! grep -q 'max_seq\[ANON_AND_FILE\]' include/linux/mmzone.h; then
+            echo ":: error::struct lrugen.max_seq is not per-type - the Re-swappiness port is missing"
+            exit 1
+          fi
+          if [ ! -f out/mm/vmscan.o ]; then
+            echo ":: error::out/mm/vmscan.o missing - mm was not built"
+            exit 1
+          fi
+          if ! strings out/mm/vmscan.o | grep -q 'Re-swappiness: MGLRU anon/file independent aging'; then
+            echo ":: error::Re-swappiness banner string not in out/mm/vmscan.o - the port did not compile in"
+            exit 1
+          fi
+          echo "::notice::Re-swappiness v1.3 present in out/mm/vmscan.o (independent anon/file aging)"
+
+
       - name: KSU / SUSFS symbol gate (warn-only)
         run: |
           set -eo pipefail
@@ -543,6 +568,7 @@ jobs:
             **Memory management**
             - MGLRU — multi-gen LRU page reclaim
             - le9uo — working-set protection, on by default
+            - Re-swappiness — MGLRU anon and file generations age independently
 
             **Root & hiding**
             - BakaSU — KernelSU fork, multi-manager

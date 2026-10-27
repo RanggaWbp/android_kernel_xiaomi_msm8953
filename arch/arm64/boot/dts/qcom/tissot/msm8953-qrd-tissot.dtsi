@@ -251,7 +251,7 @@
 	/delete-property/ qcom,chg-led-support;
 	/delete-property/ qcom,external-typec;
 	/delete-property/ qcom,typec-psy-name;
-	qcom,thermal-mitigation = <3000 3000 2500 2000 1500 1000 0>;
+	qcom,thermal-mitigation = <3000 2800 2500 2000 1500 1000 0>;
 };
 
 &pmi8950_fg {
@@ -260,7 +260,8 @@
 	qcom,cool-bat-decidegc = <150>;
 	qcom,warm-bat-decidegc = <480>;
 	qcom,hot-bat-decidegc = <500>;
-	qcom,cold-hot-jeita-hysteresis = <20 20>;
+	/* cold, hot decidegC hysteresis: resume charging 1C below the stop point */
+	qcom,cold-hot-jeita-hysteresis = <10 10>;
 };
 
 &sdhc_2 {

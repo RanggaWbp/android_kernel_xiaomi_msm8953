@@ -460,7 +460,16 @@ module_param_named(
 	int, 00600
 );
 
-static int smbchg_default_dcp_icl_ma = 2000;
+/*
+ * tissot: the USB path is 5V only (HVDCP is force-disabled under
+ * CONFIG_MACH_XIAOMI_TISSOT), so the DCP input limit is the only knob that
+ * decides whether the 3A FCC vote is reachable. CAF's 2000mA default caps
+ * input below the charger IC's 3000mA FCC ceiling and the thermal table's
+ * level-0 vote. AICL still clamps to whatever the adapter can actually
+ * deliver (a 5V/2A brick re-runs AICL and lands ~2000mA), so raising the
+ * request is safe; it only unlocks 3A on a 15W-capable source.
+ */
+static int smbchg_default_dcp_icl_ma = 3000;
 module_param_named(
 	default_dcp_icl_ma, smbchg_default_dcp_icl_ma,
 	int, 00600

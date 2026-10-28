@@ -15,6 +15,14 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        defconfig: [tissot_defconfig, tissot-oc_defconfig]
+        include:
+          - defconfig: tissot_defconfig
+            variant: stock
+          - defconfig: tissot-oc_defconfig
+            variant: oc
     outputs:
       sha8: ${{ steps.meta.outputs.sha8 }}
       ksu_sha: ${{ steps.meta.outputs.ksu_sha }}
@@ -107,7 +115,8 @@ jobs:
             BAKASU_VER="unknown"
           fi
           KVER="$(sed -n 's/^VERSION = //p' Makefile).$(sed -n 's/^PATCHLEVEL = //p' Makefile).$(sed -n 's/^SUBLEVEL = //p' Makefile)"
-          KERNEL_STRING="tissot-${KVER}|BakaSU-SUSFS|${BAKASU_VER}|g${SHA8}"
+          VARIANT="${{ matrix.variant }}"
+          KERNEL_STRING="tissot-${KVER}-${VARIANT}|BakaSU-SUSFS|${BAKASU_VER}|g${SHA8}"
           {
             echo "sha8=$SHA8"
             echo "ksu_sha=$KSU_SHA"
@@ -120,6 +129,7 @@ jobs:
             echo "kernel_string=$KERNEL_STRING"
             echo "build_ts=$BUILD_TS"
             echo "build_date=$BUILD_DATE"
+            echo "variant=$VARIANT"
           } >> "$GITHUB_OUTPUT"
           echo "kernel.string=$KERNEL_STRING"
           # BakaSU build-log format - re-derived on every BakaSU sync, never hardcoded
@@ -248,7 +258,7 @@ jobs:
           make O=out CC="$PWD/tc/clang/bin/clang" \
             CROSS_COMPILE="$PWD/tc/gcc-64/bin/aarch64-linux-android-" \
             CROSS_COMPILE_ARM32="$PWD/tc/gcc-32/bin/arm-linux-androideabi-" \
-            tissot_defconfig
+            ${{ matrix.defconfig }}
 
       - name: Resolve boot image artifact
         id: img
@@ -417,6 +427,7 @@ jobs:
           KERNEL_STRING: ${{ steps.meta.outputs.kernel_string }}
           BUILD_DATE: ${{ steps.meta.outputs.build_date }}
           BUILD_TS: ${{ steps.meta.outputs.build_ts }}
+          VARIANT: ${{ matrix.variant }}
         run: |
           set -eo pipefail
           if [ ! -f "out/arch/arm64/boot/$IMAGE_NAME" ]; then
@@ -446,7 +457,7 @@ jobs:
           rm -rf anykernel/.git anykernel/.github \
             Image Image-dtb Image.gz Image.bz2 Image.lzo Image.lzma Image.xz Image.lz4 kernel
           cp "out/arch/arm64/boot/$IMAGE_NAME" anykernel/
-          ZIP="tissot-BakaSU-SUSFS-${BUILD_DATE}-${GITHUB_SHA:0:8}.zip"
+          ZIP="tissot-${VARIANT}-BakaSU-SUSFS-${BUILD_DATE}-${GITHUB_SHA:0:8}.zip"
           ( cd anykernel && zip -r9 "../$ZIP" . -x '.git*' > /dev/null )
           if ! unzip -l "$ZIP" | grep -qE " ${IMAGE_NAME}$"; then
             echo ":: error::$IMAGE_NAME is not inside $ZIP"
@@ -462,7 +473,7 @@ jobs:
       - name: Upload zip artifact
         uses: actions/upload-artifact@v4
         with:
-          name: tissot-anykernel
+          name: tissot-anykernel-${{ matrix.defconfig }}
           path: "*.zip" # never out/ - it holds a multi-GB vmlinux
           if-no-files-found: error
           retention-days: 30
@@ -473,8 +484,8 @@ jobs:
     runs-on: ubuntu-24.04
     env:
       # anchored to the build moment so tag / zip / release body can never disagree
-      BUILD_DATE: ${{ needs.build.outputs.build_date }}
-      BUILD_TS: ${{ needs.build.outputs.build_ts }}
+      BUILD_DATE: ${{ needs.build.outputs.build_date[0] }}
+      BUILD_TS: ${{ needs.build.outputs.build_ts[0] }}
     steps:
       - name: Checkout for release metadata
         uses: actions/checkout@v4
@@ -500,19 +511,19 @@ jobs:
           echo "release tag: $TAG"
           echo "built at (UTC): $BUILD_TS"
 
-      - name: Download zip artifact
+      - name: Download zip artifacts
         uses: actions/download-artifact@v4
         with:
-          name: tissot-anykernel
           path: artifacts
+          merge-multiple: true
 
       - name: Assert zip count
         run: |
           set -eo pipefail
           n="$(find artifacts -maxdepth 1 -type f -name '*.zip' | wc -l)"
           echo "zip count: $n"
-          if [ "$n" -ne 1 ]; then
-            echo ":: error::expected exactly 1 zip, found $n"
+          if [ "$n" -ne 2 ]; then
+            echo ":: error::expected exactly 2 zips, found $n"
             exit 1
           fi
 
@@ -520,25 +531,27 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.rel.outputs.tag }}
-          name: tissot BakaSU+SUSFS ${{ steps.rel.outputs.sha8 }} (BakaSU ${{ needs.build.outputs.bakasu_ver_name }})
+          name: tissot BakaSU+SUSFS ${{ steps.rel.outputs.sha8 }} (BakaSU ${{ needs.build.outputs.bakasu_ver_name[0] }})
           make_latest: true
           files: artifacts/*.zip
           body: |
             ## tissot (Xiaomi Mi A1) — BakaSU + SUSFS
 
+            This release ships both build variants: **stock** (`tissot_defconfig`) and **OC** (`tissot-oc_defconfig`).
+
             | | |
             |---|---|
-            | Kernel | Linux ${{ needs.build.outputs.kver }} (stable, EOL) |
+            | Kernel | Linux ${{ needs.build.outputs.kver[0] }} (stable, EOL) |
             | Tree | LineageOS/CAF msm8953 (lineage-21) |
-            | Root | BakaSU (KernelSU fork, main) @ ${{ needs.build.outputs.ksu_sha }} (${{ needs.build.outputs.bakasu_ver_name }}) |
-            | BakaSU version code | ${{ needs.build.outputs.bakasu_ver_code }} |
-            | BakaSU version name | ${{ needs.build.outputs.bakasu_ver_name }} |
-            | Supported Managers | ${{ needs.build.outputs.bakasu_managers }} |
+            | Root | BakaSU (KernelSU fork, main) @ ${{ needs.build.outputs.ksu_sha[0] }} (${{ needs.build.outputs.bakasu_ver_name[0] }}) |
+            | BakaSU version code | ${{ needs.build.outputs.bakasu_ver_code[0] }} |
+            | BakaSU version name | ${{ needs.build.outputs.bakasu_ver_name[0] }} |
+            | Supported Managers | ${{ needs.build.outputs.bakasu_managers[0] }} |
             | SUSFS | inline hooks, susfs-compatible |
-            | Boot image | `${{ needs.build.outputs.image }}` (DTB appended) |
+            | Boot image | `${{ needs.build.outputs.image[0] }}` (DTB appended) |
             | Flasher | AnyKernel3 @ ${{ steps.rel.outputs.ak3_sha }} |
             | Commit | ${{ steps.rel.outputs.sha8 }} |
-            | Build date (UTC) | ${{ needs.build.outputs.build_ts }} |
+            | Build date (UTC) | ${{ needs.build.outputs.build_ts[0] }} |
 
             ### Features
 

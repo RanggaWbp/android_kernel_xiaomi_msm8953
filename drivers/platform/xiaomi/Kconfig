@@ -20,4 +20,10 @@ config MACH_XIAOMI_TISSOT
 	help
 	  Support for Xiomi MI A1 tissot
 
+config TISSOT_OC
+	bool "Tissot overclock build"
+	depends on MACH_XIAOMI_TISSOT
+	help
+	  Build the overclocked variant (GPU 700 MHz, CPU 2.208 GHz).
+
 endmenu

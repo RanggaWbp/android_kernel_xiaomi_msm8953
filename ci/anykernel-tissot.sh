@@ -113,6 +113,11 @@ rest="${rest#*|}";
 if [ "$rest" = "$ksuver" ]; then rest=""; fi;
 ksha="${rest%%|*}";
 
+# Build variant (stock/oc) rides in the first kernel.string field:
+# "tissot-<kver>-<variant>|...". Derive it so the ui_print banner flags
+# an OC build without any hardcoded value in the repo.
+variant="${kver##*-}";
+
 ui_print " ";
 ui_print "============================================";
 ui_print " BakaSU Kernel - tissot";
@@ -123,6 +128,7 @@ ui_print "   android_kernel_xiaomi_msm8953";
 ui_print "--------------------------------------------";
 ui_print " Device : tissot (Xiaomi Mi A1), A-only";
 ui_print " Version: $kver";
+ui_print " Variant: $variant";
 if [ -n "$ksubase" ]; then ui_print " Stack  : $ksubase ($ksuver)"; fi;
 if [ -n "$ksha" ]; then ui_print " Commit : $ksha"; fi;
 ui_print "--------------------------------------------";

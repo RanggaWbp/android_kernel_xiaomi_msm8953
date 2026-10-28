@@ -416,7 +416,11 @@
 					<0 0 0 0 0 0 0 0>,
 
 					/* Speed bin 2 */
+				#ifdef CONFIG_TISSOT_OC
+					<9 9 9 9 9 9 9 9>,
+				#else
 					<7 7 7 7 7 7 7 7>,
+				#endif
 
 					/* Speed bin 3..5 */
 					<0 0 0 0 0 0 0 0>,

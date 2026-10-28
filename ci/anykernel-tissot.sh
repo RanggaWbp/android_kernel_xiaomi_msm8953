@@ -129,6 +129,12 @@ ui_print "--------------------------------------------";
 ui_print " Device : tissot (Xiaomi Mi A1), A-only";
 ui_print " Version: $kver";
 ui_print " Variant: $variant";
+# OC here means GPU-only (700 MHz); CPU stays at the stock 2016 MHz.
+if [ "$variant" = "oc" ]; then
+  ui_print " Clocks : CPU 2016 · GPU 700 MHz";
+else
+  ui_print " Clocks : CPU 2016 · GPU 650 MHz";
+fi;
 if [ -n "$ksubase" ]; then ui_print " Stack  : $ksubase ($ksuver)"; fi;
 if [ -n "$ksha" ]; then ui_print " Commit : $ksha"; fi;
 ui_print "--------------------------------------------";

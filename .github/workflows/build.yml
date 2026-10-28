@@ -572,9 +572,9 @@ jobs:
             | Variant | CPU (big) | GPU (Adreno 506) | Change |
             |---|---:|---:|---|
             | stock | 2016 MHz (standard) | 650 MHz | — |
-            | OC | 2208 MHz (forced) | **700 MHz** | CPU +192 MHz, GPU +50 MHz (both safe, sdm632/DTS-speed-7 template) |
+            | OC | 2016 MHz (shared) | **700 MHz** | GPU +50 MHz (safe, sdm632 template) |
 
-            OC variant gates the raise behind `CONFIG_TISSOT_OC`; stock keeps the standard 2016 MHz CPU / 650 MHz GPU.
+            OC raises only the GPU behind `CONFIG_TISSOT_OC`; CPU stays at the standard 2016 MHz (2.208 MHz over-volts low-bin units and boot-loops).
 
             | | |
             |---|---|

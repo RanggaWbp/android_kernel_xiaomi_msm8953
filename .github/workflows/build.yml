@@ -567,6 +567,15 @@ jobs:
 
             This release ships both build variants: **stock** (`tissot_defconfig`) and **OC** (`tissot-oc_defconfig`).
 
+            **Variant clocks**
+
+            | Variant | CPU (big) | GPU (Adreno 506) | Change |
+            |---|---:|---:|---|
+            | stock | 2.208 GHz (standard) | 650 MHz | — |
+            | OC | 2.208 GHz (unchanged) | **700 MHz** | GPU +50 MHz (safe, sdm632 template) |
+
+            OC variant gates a safe GPU raise behind `CONFIG_TISSOT_OC`; CPU 2.208 GHz is already an in-tree speed bin, so it is not touched.
+
             | | |
             |---|---|
             | Kernel | Linux ${{ needs.meta.outputs.kver }} (stable, EOL) |

@@ -13,16 +13,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
+  meta:
     runs-on: ubuntu-24.04
-    strategy:
-      matrix:
-        defconfig: [tissot_defconfig, tissot-oc_defconfig]
-        include:
-          - defconfig: tissot_defconfig
-            variant: stock
-          - defconfig: tissot-oc_defconfig
-            variant: oc
     outputs:
       sha8: ${{ steps.meta.outputs.sha8 }}
       ksu_sha: ${{ steps.meta.outputs.ksu_sha }}
@@ -32,16 +24,15 @@ jobs:
       bakasu_ver_name: ${{ steps.meta.outputs.bakasu_ver_name }}
       bakasu_managers: ${{ steps.meta.outputs.bakasu_managers }}
       kver: ${{ steps.meta.outputs.kver }}
-      kernel_string: ${{ steps.meta.outputs.kernel_string }}
       build_ts: ${{ steps.meta.outputs.build_ts }}
-      image: ${{ steps.img.outputs.image }}
-      zip: ${{ steps.pkg.outputs.zip }}
+      build_date: ${{ steps.meta.outputs.build_date }}
+      image: Image.gz-dtb
     steps:
       - name: "Checkout with submodules"
         uses: actions/checkout@v4
         with:
           submodules: recursive # pulls KernelSU (BakaSU) + anykernel after the merge
-          fetch-depth: 0 # full history: needed for the KernelSU commit count in the version string
+          fetch-depth: 0
 
       - name: Build metadata
         id: meta
@@ -50,7 +41,6 @@ jobs:
           SHA8="$(git rev-parse --short=8 HEAD)"
           BUILD_TS="$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)"
           BUILD_DATE="$(date -u +%Y%m%d)"
-          # BakaSU lives in the KernelSU submodule (merged by the kernel agent) - tolerate its absence
           KSU_SHA="unknown"
           KSU_COUNT="0"
           KSU_DESCRIBE="unknown"
@@ -66,16 +56,12 @@ jobs:
             if [ -z "$KSU_BRANCH" ]; then KSU_BRANCH="unknown"; fi
             KBUILD="drivers/KernelSU/kernel/Kbuild"
             KCFG="drivers/KernelSU/kernel/Kconfig"
-            # --- primary source: kernel/Kbuild, i.e. the exact math the KSU module prints at build time ---
-            # KSU_VERSION := $(shell expr <const> + $(rev-list --count HEAD) [+ <const> ...])
             if [ -f "$KBUILD" ]; then
               CODE_EXPR="$(sed -n 's/^KSU_VERSION := \$(shell expr \(.*\)).*$/\1/p' "$KBUILD" | head -n1)"
               if [ -n "$CODE_EXPR" ]; then
                 CONST_SUM="$(printf '%s\n' "$CODE_EXPR" | grep -o '[0-9][0-9]*' | awk '{s+=$1} END{print s+0}')"
                 BAKASU_VER_CODE="$(( CONST_SUM + KSU_COUNT ))"
               fi
-              # KSU_VERSION_FULL := CONFIG_KSU_FULL_NAME_FORMAT with the %PLACEHOLDER%s resolved
-              # (sed range, not awk: mawk on the ubuntu runner rejects [[:space:]])
               NAME_FMT="$(sed -n '/^config KSU_FULL_NAME_FORMAT$/,/^[^[:space:]]/ s/^[[:space:]]*default "\(.*\)".*/\1/p' "$KCFG" | head -n1)"
               if [ -n "$NAME_FMT" ]; then
                 BAKASU_VER_NAME="$NAME_FMT"
@@ -85,26 +71,17 @@ jobs:
                 BAKASU_VER_NAME="${BAKASU_VER_NAME//%BRANCH_NAME%/$KSU_BRANCH}"
                 BAKASU_VER_NAME="${BAKASU_VER_NAME//%KSU_VERSION%/$BAKASU_VER_CODE}"
               fi
-              # 'Supported Managers' line - only emitted when CONFIG_KSU_MULTI_MANAGER_SUPPORT=y
               MGR="$(sed -n 's/^\$(info -- Supported Managers: \(.*\))$/\1/p' "$KBUILD" | head -n1)"
               MGR="$(printf '%s' "$MGR" | sed 's/[[:space:]]*$//')"
               if [ -n "$MGR" ]; then BAKASU_MANAGERS="$MGR"; fi
             fi
-            # --- fallback: submodule git only, no hardcoded version numbers ---
             if [ -f "$KBUILD" ] && [ -z "$NAME_FMT" ]; then
               echo ":: warning::KSU_FULL_NAME_FORMAT not found in kernel/Kconfig - falling back to git describe"
             fi
             if [ "$BAKASU_VER_NAME" = "unknown" ] && [ "$KSU_DESCRIBE" != "unknown" ]; then
               BAKASU_VER_NAME="$KSU_DESCRIBE"
             fi
-            if [ "$BAKASU_VER_CODE" = "unknown" ]; then
-              echo ":: warning::BakaSU version code not derivable from kernel/Kbuild - release shows 'unknown'"
-            fi
-            if [ "$BAKASU_MANAGERS" = "unknown" ] && grep -qE '^CONFIG_KSU_MULTI_MANAGER_SUPPORT=y' arch/arm64/configs/tissot_defconfig 2>/dev/null; then
-              echo ":: warning::CONFIG_KSU_MULTI_MANAGER_SUPPORT=y but no 'Supported Managers' line in kernel/Kbuild"
-            fi
           fi
-          # composite version string for kernel.string + the release table
           if [ "$BAKASU_VER_NAME" != "unknown" ] && [ "$BAKASU_VER_CODE" != "unknown" ]; then
             BAKASU_VER="$BAKASU_VER_NAME (code $BAKASU_VER_CODE)"
           elif [ "$BAKASU_VER_NAME" != "unknown" ]; then
@@ -115,8 +92,6 @@ jobs:
             BAKASU_VER="unknown"
           fi
           KVER="$(sed -n 's/^VERSION = //p' Makefile).$(sed -n 's/^PATCHLEVEL = //p' Makefile).$(sed -n 's/^SUBLEVEL = //p' Makefile)"
-          VARIANT="${{ matrix.variant }}"
-          KERNEL_STRING="tissot-${KVER}-${VARIANT}|BakaSU-SUSFS|${BAKASU_VER}|g${SHA8}"
           {
             echo "sha8=$SHA8"
             echo "ksu_sha=$KSU_SHA"
@@ -126,9 +101,62 @@ jobs:
             echo "bakasu_ver_name=$BAKASU_VER_NAME"
             echo "bakasu_managers=$BAKASU_MANAGERS"
             echo "kver=$KVER"
-            echo "kernel_string=$KERNEL_STRING"
             echo "build_ts=$BUILD_TS"
             echo "build_date=$BUILD_DATE"
+          } >> "$GITHUB_OUTPUT"
+
+  build:
+    runs-on: ubuntu-24.04
+    needs: meta
+    strategy:
+      matrix:
+        defconfig: [tissot_defconfig, tissot-oc_defconfig]
+        include:
+          - defconfig: tissot_defconfig
+            variant: stock
+          - defconfig: tissot-oc_defconfig
+            variant: oc
+    outputs:
+      sha8: ${{ steps.meta.outputs.sha8 }}
+      kver: ${{ steps.meta.outputs.kver }}
+      kernel_string: ${{ steps.meta.outputs.kernel_string }}
+      build_ts: ${{ steps.meta.outputs.build_ts }}
+      build_date: ${{ steps.meta.outputs.build_date }}
+      variant: ${{ steps.meta.outputs.variant }}
+      image: ${{ steps.img.outputs.image }}
+      zip: ${{ steps.pkg.outputs.zip }}
+    steps:
+      - name: "Checkout with submodules"
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive # pulls KernelSU (BakaSU) + anykernel after the merge
+          fetch-depth: 0 # full history: needed for the KernelSU commit count in the version string
+
+      - name: Build metadata
+        id: meta
+        run: |
+          set -eo pipefail
+          # All shared metadata comes from the non-matrix meta job; here we
+          # only add the per-variant kernel.string and re-emit what the build
+          # steps consume. Values stay dynamic, never hardcoded.
+          SHA8="${{ needs.meta.outputs.sha8 }}"
+          BUILD_TS="${{ needs.meta.outputs.build_ts }}"
+          BUILD_DATE="${{ needs.meta.outputs.build_date }}"
+          KSU_SHA="${{ needs.meta.outputs.ksu_sha }}"
+          KSU_COUNT="${{ needs.meta.outputs.ksu_count }}"
+          BAKASU_VER="${{ needs.meta.outputs.bakasu_ver }}"
+          BAKASU_VER_CODE="${{ needs.meta.outputs.bakasu_ver_code }}"
+          BAKASU_VER_NAME="${{ needs.meta.outputs.bakasu_ver_name }}"
+          BAKASU_MANAGERS="${{ needs.meta.outputs.bakasu_managers }}"
+          KVER="${{ needs.meta.outputs.kver }}"
+          VARIANT="${{ matrix.variant }}"
+          KERNEL_STRING="tissot-${KVER}-${VARIANT}|BakaSU-SUSFS|${BAKASU_VER}|g${SHA8}"
+          {
+            echo "sha8=$SHA8"
+            echo "build_ts=$BUILD_TS"
+            echo "build_date=$BUILD_DATE"
+            echo "kver=$KVER"
+            echo "kernel_string=$KERNEL_STRING"
             echo "variant=$VARIANT"
           } >> "$GITHUB_OUTPUT"
           echo "kernel.string=$KERNEL_STRING"
@@ -480,12 +508,12 @@ jobs:
 
   release:
     name: Release
-    needs: build
+    needs: [meta, build]
     runs-on: ubuntu-24.04
     env:
-      # anchored to the build moment so tag / zip / release body can never disagree
-      BUILD_DATE: ${{ needs.build.outputs.build_date[0] }}
-      BUILD_TS: ${{ needs.build.outputs.build_ts[0] }}
+      # anchored to the meta job moment so tag / zip / release body can never disagree
+      BUILD_DATE: ${{ needs.meta.outputs.build_date }}
+      BUILD_TS: ${{ needs.meta.outputs.build_ts }}
     steps:
       - name: Checkout for release metadata
         uses: actions/checkout@v4
@@ -531,7 +559,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.rel.outputs.tag }}
-          name: tissot BakaSU+SUSFS ${{ steps.rel.outputs.sha8 }} (BakaSU ${{ needs.build.outputs.bakasu_ver_name[0] }})
+          name: tissot BakaSU+SUSFS ${{ steps.rel.outputs.sha8 }} (BakaSU ${{ needs.meta.outputs.bakasu_ver_name }})
           make_latest: true
           files: artifacts/*.zip
           body: |
@@ -541,17 +569,17 @@ jobs:
 
             | | |
             |---|---|
-            | Kernel | Linux ${{ needs.build.outputs.kver[0] }} (stable, EOL) |
+            | Kernel | Linux ${{ needs.meta.outputs.kver }} (stable, EOL) |
             | Tree | LineageOS/CAF msm8953 (lineage-21) |
-            | Root | BakaSU (KernelSU fork, main) @ ${{ needs.build.outputs.ksu_sha[0] }} (${{ needs.build.outputs.bakasu_ver_name[0] }}) |
-            | BakaSU version code | ${{ needs.build.outputs.bakasu_ver_code[0] }} |
-            | BakaSU version name | ${{ needs.build.outputs.bakasu_ver_name[0] }} |
-            | Supported Managers | ${{ needs.build.outputs.bakasu_managers[0] }} |
+            | Root | BakaSU (KernelSU fork, main) @ ${{ needs.meta.outputs.ksu_sha }} (${{ needs.meta.outputs.bakasu_ver_name }}) |
+            | BakaSU version code | ${{ needs.meta.outputs.bakasu_ver_code }} |
+            | BakaSU version name | ${{ needs.meta.outputs.bakasu_ver_name }} |
+            | Supported Managers | ${{ needs.meta.outputs.bakasu_managers }} |
             | SUSFS | inline hooks, susfs-compatible |
-            | Boot image | `${{ needs.build.outputs.image[0] }}` (DTB appended) |
+            | Boot image | `${{ needs.meta.outputs.image }}` (DTB appended) |
             | Flasher | AnyKernel3 @ ${{ steps.rel.outputs.ak3_sha }} |
             | Commit | ${{ steps.rel.outputs.sha8 }} |
-            | Build date (UTC) | ${{ needs.build.outputs.build_ts[0] }} |
+            | Build date (UTC) | ${{ needs.meta.outputs.build_ts }} |
 
             ### Features
 

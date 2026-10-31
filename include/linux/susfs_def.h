@@ -1,4 +1,3 @@
-++ b/include/linux/susfs_def.h
 #ifndef KSU_SUSFS_DEF_H
 #define KSU_SUSFS_DEF_H
 

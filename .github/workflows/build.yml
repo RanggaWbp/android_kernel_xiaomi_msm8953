@@ -284,6 +284,7 @@ jobs:
           set -eo pipefail
           export ARCH=arm64 SUBARCH=arm64 CLANG_TRIPLE=aarch64-linux-gnu-
           make O=out CC="$PWD/tc/clang/bin/clang" \
+            LLVM_IAS=1 \
             CROSS_COMPILE="$PWD/tc/gcc-64/bin/aarch64-linux-android-" \
             CROSS_COMPILE_ARM32="$PWD/tc/gcc-32/bin/arm-linux-androideabi-" \
             ${{ matrix.defconfig }}
@@ -308,6 +309,7 @@ jobs:
           set -eo pipefail
           export ARCH=arm64 SUBARCH=arm64 CLANG_TRIPLE=aarch64-linux-gnu-
           make O=out CC="$PWD/tc/clang/bin/clang" \
+            LLVM_IAS=1 \
             CROSS_COMPILE="$PWD/tc/gcc-64/bin/aarch64-linux-android-" \
             CROSS_COMPILE_ARM32="$PWD/tc/gcc-32/bin/arm-linux-androideabi-" \
             -j"$(nproc)" dtbs
@@ -321,6 +323,7 @@ jobs:
           set -eo pipefail
           export ARCH=arm64 SUBARCH=arm64 CLANG_TRIPLE=aarch64-linux-gnu-
           make O=out CC="$PWD/tc/clang/bin/clang" \
+            LLVM_IAS=1 \
             CROSS_COMPILE="$PWD/tc/gcc-64/bin/aarch64-linux-android-" \
             CROSS_COMPILE_ARM32="$PWD/tc/gcc-32/bin/arm-linux-androideabi-" \
             -j"$(nproc)" "$IMAGE_NAME"
@@ -332,6 +335,7 @@ jobs:
           set -eo pipefail
           export ARCH=arm64 SUBARCH=arm64 CLANG_TRIPLE=aarch64-linux-gnu-
           make O=out CC="$PWD/tc/clang/bin/clang" \
+            LLVM_IAS=1 \
             CROSS_COMPILE="$PWD/tc/gcc-64/bin/aarch64-linux-android-" \
             CROSS_COMPILE_ARM32="$PWD/tc/gcc-32/bin/arm-linux-androideabi-" \
             -j"$(nproc)" "$IMAGE_NAME"

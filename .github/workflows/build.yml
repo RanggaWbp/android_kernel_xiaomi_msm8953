@@ -234,12 +234,12 @@ jobs:
             chmod -R a+rx "$dest/bin" 2>/dev/null || true
             rm -rf "$tmp"
           }
-          # Clang 12 (AOSP r416183b via the LineageOS mirror) - fall back to AOSP master, then ZyC Clang 14
+          # ZyC Clang 14 (built for Android kernels; fits 4.9) - primary, fall back to AOSP mirrors
           fetch tc/clang.tar.gz \
+            "https://github.com/ZyCromerZ/Clang/releases/download/14.0.6-20261022-release/Clang-14.0.6-20261022.tar.gz" \
             "https://api.github.com/repos/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b/tarball" \
             "https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b/archive/refs/heads/lineage-20.0.tar.gz" \
-            "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/master.tar.gz" \
-            "https://github.com/ZyCromerZ/Clang/releases/download/14.0.6-20261022-release/Clang-14.0.6-20261022.tar.gz"
+            "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/master.tar.gz"
           stage tc/clang.tar.gz tc/clang clang
           # AOSP GCC 4.9 aarch64 binutils - LineageOS GitHub mirrors as fallback
           fetch tc/gcc64.tar.gz \

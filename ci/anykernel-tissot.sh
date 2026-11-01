@@ -4,7 +4,7 @@
 ### AnyKernel setup
 # global properties
 properties() { '
-kernel. string=tissot-4.9.337-BakaSU-SUSFS-CI
+kernel. string=tissot-4.9.337-TanpaNama-SUSFS-CI
 do.devicecheck=1
 do.modules=0
 do.systemless=1
@@ -120,7 +120,7 @@ variant="${kver##*-}";
 
 ui_print " ";
 ui_print "============================================";
-ui_print " BakaSU Kernel - tissot";
+ui_print " TanpaNama Kernel - tissot";
 ui_print "============================================";
 ui_print " Kernel by RanggaWbp";
 ui_print " Source : github.com/RanggaWbp/";

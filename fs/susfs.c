@@ -26,6 +26,8 @@
 #include <linux/limits.h>
 #include <linux/rcupdate.h>
 #include <linux/string.h>
+#include <linux/hash.h>
+#include <linux/hashtable.h>
 #include <linux/vmalloc.h>
 #include <linux/susfs.h>
 #include "fuse/fuse_i.h"
@@ -60,8 +62,8 @@ DEFINE_STATIC_KEY_TRUE(susfs_is_log_enabled);
 #define SUSFS_LOGI(fmt, ...) if (static_branch_likely(&susfs_is_log_enabled)) pr_info("susfs:[%u][%d][%s] " fmt, current_uid().val, current->pid, __func__, ##__VA_ARGS__)
 #define SUSFS_LOGE(fmt, ...) if (static_branch_likely(&susfs_is_log_enabled)) pr_err("susfs:[%u][%d][%s]" fmt, current_uid().val, current->pid, __func__, ##__VA_ARGS__)
 #else
-#define SUSFS_LOGI(fmt, ...) 
-#define SUSFS_LOGE(fmt, ...) 
+#define SUSFS_LOGI(fmt, ...)
+#define SUSFS_LOGE(fmt, ...)
 #endif
 
 /*
@@ -72,6 +74,133 @@ DEFINE_STATIC_KEY_TRUE(susfs_is_log_enabled);
  * susfs_restore_creds() afterwards.
  * Returns the original credentials on success, NULL on failure.
  */
+static DEFINE_MUTEX(susfs_mutex_lock_sus_type);
+static DEFINE_HASHTABLE(SUS_TYPE_HLIST, 10);
+
+struct st_susfs_sus_type_hlist {
+	struct hlist_node                       node;
+};
+
+int susfs_add_sus_type(const char *secctx, u32 type_value) {
+	struct st_susfs_sus_type_hlist *new_entry, *tmp_entry;
+	struct hlist_node *tmp_hlist_node;
+	int err = 0;
+
+	mutex_lock(&susfs_mutex_lock_sus_type);
+	hash_for_each_possible_safe(SUS_TYPE_HLIST, tmp_entry, tmp_hlist_node, node, type_value) {
+		SUSFS_LOGE("secctx '%s', type_value '%u', was added before already\n",
+			secctx, type_value);
+		err = -EINVAL;
+		goto unlock;
+	}
+
+	new_entry = kzalloc(sizeof(struct st_susfs_sus_type_hlist), GFP_KERNEL);
+	if (!new_entry) {
+		err = -ENOMEM;
+		goto unlock;
+	}
+
+	hash_add_rcu(SUS_TYPE_HLIST, &new_entry->node, type_value);
+	SUSFS_LOGI("secctx '%s', type '%u', has been added to SUS_TYPE_HLIST\n",
+					secctx, type_value);
+unlock:
+	mutex_unlock(&susfs_mutex_lock_sus_type);
+	return err;
+}
+
+bool susfs_is_sus_type_rcu(u32 type_value) {
+	struct st_susfs_sus_type_hlist *entry = NULL;
+
+	hash_for_each_possible_rcu(SUS_TYPE_HLIST, entry, node, type_value) {
+		return true;
+	}
+	return false;
+}
+
+static DEFINE_MUTEX(susfs_mutex_lock_sus_avd_allowed_hlist);
+static DEFINE_HASHTABLE(SUS_AVD_ALLOWED_HLIST, 18);
+
+struct susfs_sus_av_rule {
+	struct hlist_node node;
+	u32 s_type;
+	u32 t_type;
+	u32 c_type;
+	u32 orig_avd_allowed;
+};
+
+static inline u32 susfs_av_rule_hash(u32 ssid, u32 tsid, u16 tclass)
+{
+	u32 h;
+
+	h = hash_32(ssid, 32);
+	h ^= rol32(hash_32(tsid, 32), 13);
+	h ^= rol32(hash_32((u32)tclass, 32), 19);
+
+	h += h << 13;
+	h ^= h >> 7;
+	h += h << 17;
+	h ^= h >> 5;
+
+	return h;
+}
+
+int susfs_add_sus_avd_allowed_by_type(u32 s_type, u32 t_type, u32 c_type, u32 orig_avd_allowed)
+{
+	struct susfs_sus_av_rule *entry, *tmp_entry;
+	struct hlist_node *tmp_hlist_node;
+	int err = 0;
+	u32 key;
+
+	mutex_lock(&susfs_mutex_lock_sus_avd_allowed_hlist);
+
+	entry = kzalloc(sizeof(*entry), GFP_ATOMIC);
+	if (!entry) {
+		err = -ENOMEM;
+		goto unlock;
+	}
+
+	key = susfs_av_rule_hash(s_type, t_type, c_type);
+	hash_for_each_possible_safe(SUS_AVD_ALLOWED_HLIST, tmp_entry, tmp_hlist_node, node, key) {
+		if (tmp_entry->s_type == s_type &&
+		    tmp_entry->t_type == t_type &&
+		    tmp_entry->c_type == c_type)
+		{
+			// Do not apply any new orig_avd_allowed for matched entry.
+			kfree(entry);
+			goto unlock;
+		}
+	}
+
+	entry->s_type = s_type;
+	entry->t_type = t_type;
+	entry->c_type = c_type;
+	entry->orig_avd_allowed = orig_avd_allowed;
+
+
+	hash_add_rcu(SUS_AVD_ALLOWED_HLIST, &entry->node, key);
+	SUSFS_LOGI("av_rule '%u %u %u %u' has been added to SUS_AVD_ALLOWED_HLIST\n",
+				s_type, t_type, c_type, orig_avd_allowed);
+unlock:
+	mutex_unlock(&susfs_mutex_lock_sus_avd_allowed_hlist);
+	return err;
+}
+
+void susfs_spoof_avd_allowed_rcu(u32 s_type, u32 t_type, u32 c_type, u32 *avd_allowed)
+{
+	struct susfs_sus_av_rule *entry;
+	u32 key = susfs_av_rule_hash(s_type, t_type, c_type);
+
+	hash_for_each_possible_rcu(SUS_AVD_ALLOWED_HLIST, entry, node, key) {
+		if (entry->s_type == s_type &&
+		    entry->t_type == t_type &&
+		    entry->c_type == c_type)
+		{
+			*avd_allowed = entry->orig_avd_allowed;
+			return;
+		}
+	}
+}
+
 static struct cred *susfs_switch_to_ksu_domain(void) {
 	struct cred *orig_cred = NULL;
 	struct cred *cred = NULL;
@@ -326,7 +455,7 @@ void susfs_set_hide_sus_mnts_for_non_su_procs(void __user **user_info) {
 		info.err = -EFAULT;
 		goto out_copy_to_user;
 	}
-	
+
 	if (info.enabled) {
 		static_branch_enable(&susfs_is_hide_sus_mnts_for_non_su_procs_enabled);
 	} else {
@@ -700,7 +829,7 @@ void susfs_sus_kstat_spoof_show_map_vma(struct inode *inode, dev_t *out_dev, uns
 		is_fuse = true;
 		goto out_spoof_kstat;
 	}
-	
+
 	if (!inode->i_mapping) {
 		SUSFS_LOGE("inode->i_mapping is NULL\n");
 		return;

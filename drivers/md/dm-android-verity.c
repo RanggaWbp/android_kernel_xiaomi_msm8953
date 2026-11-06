@@ -710,7 +710,11 @@ static int android_verity_ctr(struct dm_target *ti, unsigned argc, char **argv)
 		return -EINVAL;
 	}
 
-	if (is_eng())
+	/* Unlocked bootloader (verifiedbootstate=orange) or eng build bypasses
+	 * dm-verity and mounts /system as a plain linear device. TISSOT's
+	 * bootloader does not pass veritykeyid=/buildvariant=, so without this
+	 * the android-verity target fails and the kernel panics on root mount. */
+	if (is_eng() || is_unlocked())
 		return create_linear_device(ti, dev, target_device);
 
 	strreplace(key_id, '#', ' ');

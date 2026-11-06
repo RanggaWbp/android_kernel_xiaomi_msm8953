@@ -684,6 +684,21 @@ static int android_verity_ctr(struct dm_target *ti, unsigned argc, char **argv)
 	char buf[FEC_ARG_LENGTH], *buf_ptr;
 	unsigned long long tmpll;
 
+	/* Unlocked bootloader (verifiedbootstate=orange) or eng build mounts
+	 * /system as a plain linear device and bypasses dm-verity entirely.
+	 * TISSOT's bootloader does not pass veritykeyid=/buildvariant= on the
+	 * cmdline, so the android-verity target below fails and the kernel
+	 * panics on root mount unless we short-circuit here. */
+	if (argc && (is_unlocked() || is_eng())) {
+		dev = name_to_dev_t(argv[argc - 1]);
+		if (!dev) {
+			DMERR("no dev found for %s", argv[argc - 1]);
+			handle_error();
+			return -EINVAL;
+		}
+		return create_linear_device(ti, dev, argv[argc - 1]);
+	}
+
 	if (argc == 1) {
 		/* Use the default keyid */
 		if (default_verity_key_id())
@@ -710,11 +725,7 @@ static int android_verity_ctr(struct dm_target *ti, unsigned argc, char **argv)
 		return -EINVAL;
 	}
 
-	/* Unlocked bootloader (verifiedbootstate=orange) or eng build bypasses
-	 * dm-verity and mounts /system as a plain linear device. TISSOT's
-	 * bootloader does not pass veritykeyid=/buildvariant=, so without this
-	 * the android-verity target fails and the kernel panics on root mount. */
-	if (is_eng() || is_unlocked())
+	if (is_eng())
 		return create_linear_device(ti, dev, target_device);
 
 	strreplace(key_id, '#', ' ');

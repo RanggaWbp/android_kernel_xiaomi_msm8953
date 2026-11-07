@@ -1606,7 +1606,7 @@ void susfs_set_priority_uid_filter(void __user **user_info) {
 
 	if (is_uid_filter_set_before)
 		SUSFS_LOGI("renewing the priority uid filter\n");
-	err = susfs_parse_priority_app_names(info->app_strings, new_bitmap->bits, false);
+	err = susfs_parse_priority_app_names(info->app_strings, new_bitmap->bits, true);
 
 	susfs_restore_creds(orig_cred);
 	orig_cred = NULL;

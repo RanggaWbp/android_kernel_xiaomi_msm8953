@@ -608,7 +608,8 @@ jobs:
             - ADIOS — adaptive deadline, default scheduler
 
             **CPU frequency**
-            - Reflex — governor, default
+            - Interactive — governor, default
+            - Reflex — governor, selectable (not default)
 
             **Networking**
             - BBRv3 — congestion control, default

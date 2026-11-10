@@ -608,7 +608,7 @@ jobs:
             - ADIOS — adaptive deadline, default scheduler
 
             **CPU frequency**
-            - Interactive — governor, default
+            - schedutil — governor, default
             - Reflex — governor, selectable (not default)
 
             **Networking**

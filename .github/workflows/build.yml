@@ -110,12 +110,16 @@ jobs:
     needs: meta
     strategy:
       matrix:
-        defconfig: [tissot_defconfig, tissot-oc_defconfig]
+        defconfig: [tissot_defconfig, tissot-oc_defconfig, tissot-treble_defconfig, tissot-oc-treble_defconfig]
         include:
           - defconfig: tissot_defconfig
             variant: stock
           - defconfig: tissot-oc_defconfig
             variant: oc
+          - defconfig: tissot-treble_defconfig
+            variant: treble
+          - defconfig: tissot-oc-treble_defconfig
+            variant: oc-treble
     outputs:
       sha8: ${{ steps.meta.outputs.sha8 }}
       kver: ${{ steps.meta.outputs.kver }}
@@ -554,8 +558,8 @@ jobs:
           set -eo pipefail
           n="$(find artifacts -maxdepth 1 -type f -name '*.zip' | wc -l)"
           echo "zip count: $n"
-          if [ "$n" -ne 2 ]; then
-            echo ":: error::expected exactly 2 zips, found $n"
+          if [ "$n" -ne 4 ]; then
+            echo ":: error::expected exactly 4 zips, found $n"
             exit 1
           fi
 
@@ -569,7 +573,7 @@ jobs:
           body: |
             ## tissot (Xiaomi Mi A1) — BakaSU + SUSFS
 
-            This release ships both build variants: **stock** (`tissot_defconfig`) and **OC** (`tissot-oc_defconfig`).
+            This release ships four build variants: **stock** (`tissot_defconfig`), **OC** (`tissot-oc_defconfig`), **treble** (`tissot-treble_defconfig`), and **OC treble** (`tissot-oc-treble_defconfig`). Pick treble only if your ROM uses system-as-root; otherwise use the non-treble zip.
 
             **Variant clocks**
 
@@ -577,8 +581,10 @@ jobs:
             |---|---:|---|
             | stock | 650 MHz | — |
             | OC | **700 MHz** | GPU +50 MHz (safe, sdm632 template) |
+            | treble | 650 MHz | system-as-root, vendor fstab enabled |
+            | OC treble | **700 MHz** | system-as-root + GPU +50 MHz |
 
-            CPU 2016 MHz identical in both variants (2.208 MHz over-volts low-bin units and boot-loops). OC raises only the GPU behind `CONFIG_TISSOT_OC`.
+            CPU 2016 MHz identical across all four variants (2.208 MHz over-volts low-bin units and boot-loops). OC raises only the GPU behind `CONFIG_TISSOT_OC`; treble only changes the fstab (vendor enabled, system dropped) behind `CONFIG_TISSOT_TREBLE`.
 
             | | |
             |---|---|

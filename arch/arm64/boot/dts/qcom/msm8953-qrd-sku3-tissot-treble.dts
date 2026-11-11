@@ -1,0 +1,21 @@
+/*
+ * Treble (system-as-root / vendor-only) variant of tissot.
+ * Includes the stock tissot board, then activates the vendor fstab entry
+ * and drops the system entry. fsmgr_flags match A-only non-AB GSI-style
+ * ROMs; adjust to the target ROM's fstab if needed.
+ */
+/dts-v1/;
+
+#include "msm8953-qrd-sku3-tissot.dts"
+
+&firmware {
+	android {
+		fstab {
+			vendor {
+				fsmgr_flags = "wait,avb";
+				status = "ok";
+			};
+			/delete-node/ system;
+		};
+	};
+};

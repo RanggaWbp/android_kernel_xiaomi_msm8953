@@ -26,4 +26,11 @@ config TISSOT_OC
 	help
 	  Build the overclocked variant (GPU 700 MHz, CPU 2.208 GHz).
 
+config TISSOT_TREBLE
+	bool "Tissot treble build"
+	depends on MACH_XIAOMI_TISSOT
+	help
+	  Build the treble (system-as-root) variant. Enables the vendor fstab
+	  entry and drops the system entry in the DTB.
+
 endmenu

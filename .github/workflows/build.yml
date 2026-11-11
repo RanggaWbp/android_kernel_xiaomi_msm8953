@@ -644,6 +644,6 @@ jobs:
             **Containers**
             - DroidSpaces
 
-            **Flash:** TWRP/OrangeFox or any kernel-flasher app → install the zip. Mi A1 is A-only, so there is no second slot to switch to.
+            **Flash:** TWRP/OrangeFox or any kernel-flasher app → install the zip. Pick the variant that matches your ROM: **treble** for system-as-root builds, otherwise the **non-treble** zip.
 
             Built by [this CI run](${{ github. server_url }}/${{ github. repository }}/actions/runs/${{ github. run_id }}).

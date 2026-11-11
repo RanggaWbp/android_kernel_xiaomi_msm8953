@@ -464,6 +464,7 @@ jobs:
           BUILD_DATE: ${{ steps.meta.outputs.build_date }}
           BUILD_TS: ${{ steps.meta.outputs.build_ts }}
           VARIANT: ${{ matrix.variant }}
+          ZIP_VARIANT: ${{ matrix.variant == 'stock' && 'non-treble' || matrix.variant == 'oc' && 'oc-non-treble' || matrix.variant }}
         run: |
           set -eo pipefail
           if [ ! -f "out/arch/arm64/boot/$IMAGE_NAME" ]; then
@@ -493,7 +494,7 @@ jobs:
           rm -rf anykernel/.git anykernel/.github \
             Image Image-dtb Image.gz Image.bz2 Image.lzo Image.lzma Image.xz Image.lz4 kernel
           cp "out/arch/arm64/boot/$IMAGE_NAME" anykernel/
-          ZIP="tissot-${VARIANT}-BakaSU-SUSFS-${BUILD_DATE}-${GITHUB_SHA:0:8}.zip"
+          ZIP="tissot-${ZIP_VARIANT}-BakaSU-SUSFS-${BUILD_DATE}-${GITHUB_SHA:0:8}.zip"
           ( cd anykernel && zip -r9 "../$ZIP" . -x '.git*' > /dev/null )
           if ! unzip -l "$ZIP" | grep -qE " ${IMAGE_NAME}$"; then
             echo ":: error::$IMAGE_NAME is not inside $ZIP"

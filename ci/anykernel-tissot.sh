@@ -126,12 +126,15 @@ ui_print " Kernel by RanggaWbp";
 ui_print " Source : github.com/RanggaWbp/";
 ui_print "   android_kernel_xiaomi_msm8953";
 ui_print "--------------------------------------------";
-ui_print " Device : tissot (Xiaomi Mi A1), A-only";
+ui_print " Device : tissot (Xiaomi Mi A1)";
 ui_print " Version: $kver";
 ui_print " Variant: $variant";
 case "$variant" in
   *treble*)
     ui_print " Mode   : Treble (system-as-root)";
+    ;;
+  *)
+    ui_print " Mode   : Non-treble (legacy)";
     ;;
 esac;
 # OC here means GPU-only (700 MHz); CPU stays at the stock 2016 MHz.

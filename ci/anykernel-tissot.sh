@@ -32,7 +32,7 @@ set_perm_recursive 0 0 750 750 $RAMDISK/init* $RAMDISK/sbin
 
 # boot shell variables
 BLOCK=/dev/block/bootdevice/by-name/boot;
-IS_SLOT_DEVICE=0;
+IS_SLOT_DEVICE=auto;
 RAMDISK_COMPRESSION=auto;
 PATCH_VBMETA_FLAG=auto;
 
@@ -116,7 +116,7 @@ ksha="${rest%%|*}";
 # Build variant (stock/oc) rides in the first kernel.string field:
 # "tissot-<kver>-<variant>|...". Derive it so the ui_print banner flags
 # an OC build without any hardcoded value in the repo.
-variant="${kver##*-}";
+v="${kver#tissot-}"; variant="${v#*-}";
 
 ui_print " ";
 ui_print "============================================";
@@ -129,12 +129,20 @@ ui_print "--------------------------------------------";
 ui_print " Device : tissot (Xiaomi Mi A1), A-only";
 ui_print " Version: $kver";
 ui_print " Variant: $variant";
+case "$variant" in
+  *treble*)
+    ui_print " Mode   : Treble (system-as-root)";
+    ;;
+esac;
 # OC here means GPU-only (700 MHz); CPU stays at the stock 2016 MHz.
-if [ "$variant" = "oc" ]; then
-  ui_print " Clocks : CPU 2016 · GPU 700 MHz";
-else
-  ui_print " Clocks : CPU 2016 · GPU 650 MHz";
-fi;
+case "$variant" in
+  oc*)
+    ui_print " Clocks : CPU 2016 · GPU 700 MHz";
+    ;;
+  *)
+    ui_print " Clocks : CPU 2016 · GPU 650 MHz";
+    ;;
+esac;
 if [ -n "$ksubase" ]; then ui_print " Stack  : $ksubase ($ksuver)"; fi;
 if [ -n "$ksha" ]; then ui_print " Commit : $ksha"; fi;
 ui_print "--------------------------------------------";

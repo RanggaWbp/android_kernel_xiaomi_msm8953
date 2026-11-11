@@ -464,7 +464,7 @@ jobs:
           BUILD_DATE: ${{ steps.meta.outputs.build_date }}
           BUILD_TS: ${{ steps.meta.outputs.build_ts }}
           VARIANT: ${{ matrix.variant }}
-          ZIP_VARIANT: ${{ matrix.variant == 'stock' && 'non-treble' || matrix.variant == 'oc' && 'oc-non-treble' || matrix.variant }}
+          ZIP_VARIANT: ${{ matrix.variant == 'stock' && 'Non-Treble' || matrix.variant == 'oc' && 'oc-Non-Treble' || matrix.variant }}
         run: |
           set -eo pipefail
           if [ ! -f "out/arch/arm64/boot/$IMAGE_NAME" ]; then

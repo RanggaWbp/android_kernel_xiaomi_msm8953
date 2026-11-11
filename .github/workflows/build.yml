@@ -598,37 +598,35 @@ jobs:
 
             **Scheduler**
             - BORE — EEVDF burst-aware vruntime
-            - Cambyses — CFS load balancer (`LB_STRICT_BUDGET`)
-            - POC-selector — per-LLC idle CPU tracking, on
+            - Cambyses — CFS load balancer
+            - POC-selector — per-LLC idle CPU tracking
 
             **Memory**
             - MGLRU — multi-gen LRU page reclaim
+            - le9uo — working-set protection, on
+            - Re-swappiness — independent anon/file aging
 
             **I/O**
             - ADIOS — adaptive deadline, default scheduler
 
             **CPU frequency**
             - schedutil — governor, default
-            - Reflex — governor, selectable (not default)
+            - Reflex — governor, selectable
 
             **Networking**
             - BBRv3 — congestion control, default
 
             **Sync**
             - NTSYNC — NT sync primitives (Wine/Proton)
-            
+
             **Zram compression**
-            - LZ4KDR — zram backend, selectable; lz4 stays the default
-            
-            **Memory management**
-            - MGLRU — multi-gen LRU page reclaim
-            - le9uo — working-set protection, on by default
-            - Re-swappiness — MGLRU anon and file generations age independently
+            - lz4 — default backend
+            - LZ4KDR — selectable backend
 
             **Root & hiding**
             - BakaSU — KernelSU fork, multi-manager
             - SUSFS — path + mount hiding
-            - NoMount — VFS path redirection, activates when a module pushes rules
+            - NoMount — VFS path redirection, auto
 
             **Security**
             - Baseband-guard — LSM

@@ -69,18 +69,3 @@
 };
 
 #include "tissot/msm8953-qrd-sku3-tissot-overlay.dtsi"
-
-&firmware {
-	android {
-		fstab {
-			vendor {
-				fsmgr_flags = "wait,slotselect";
-				status = "ok";
-			};
-			system {
-				fsmgr_flags = "wait,slotselect";
-				status = "disable";
-			};
-		};
-	};
-};

@@ -1,8 +1,9 @@
 /*
  * Treble (system-as-root / vendor-only) variant of tissot.
  * Includes the stock tissot board, then activates the vendor fstab entry
- * and drops the system entry. fsmgr_flags match A-only non-AB GSI-style
- * ROMs; adjust to the target ROM's fstab if needed.
+ * and activates the system entry too (system-as-root). fsmgr_flags
+ * match A-only non-AB GSI-style ROMs; adjust to the target ROM's fstab
+ * if needed.
  */
 /dts-v1/;
 
@@ -15,7 +16,10 @@
 				fsmgr_flags = "wait,avb";
 				status = "ok";
 			};
-			/delete-node/ system;
+			system {
+				fsmgr_flags = "wait,slotselect";
+				status = "ok";
+			};
 		};
 	};
 };

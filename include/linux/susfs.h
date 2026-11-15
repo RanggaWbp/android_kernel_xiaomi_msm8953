@@ -165,6 +165,12 @@ struct st_susfs_priority_uid_filter {
 	int                                     err;
 };
 
+/* sus_path uid filter */
+struct st_susfs_sus_path_uid_filter {
+	char                                    app_strings[SUSFS_APP_STR_BUF_SIZE];
+	int                                     err;
+};
+
 /* avc log spoofing */
 struct st_susfs_avc_log_spoofing {
 	bool                                    enabled;
@@ -238,6 +244,10 @@ void susfs_add_sus_map(void __user **user_info);
 /* getpriority uid filter */
 void susfs_set_priority_uid_filter(void __user **user_info);
 void susfs_parse_priority_app_strings(void);
+
+/* sus_path uid filter */
+void susfs_set_sus_path_uid_filter(void __user **user_info);
+void susfs_parse_sus_path_app_strings(void);
 
 void susfs_set_avc_log_spoofing(void __user **user_info);
 

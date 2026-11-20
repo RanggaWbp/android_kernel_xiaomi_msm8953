@@ -8,7 +8,7 @@ on:
       thinlto:
         description: "Experimental ThinLTO (lld); requires CI and device validation"
         type: boolean
-        default: false
+        default: true
 
 permissions:
   contents: write # softprops/action-gh-release publishes the release
@@ -244,7 +244,7 @@ jobs:
             rm -rf "$tmp"
           }
           # ZyC Clang 14 (built for Android kernels; fits 4.9) - primary, fall back to AOSP mirrors
-          if [ "${{ inputs.thinlto }}" = "true" ]; then
+          if [ "${{ inputs.thinlto }}" != "false" ]; then
             fetch tc/clang.tar.gz \
               "https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b/archive/54220fd601050b350b2af7adc913089ebf0e7aed.tar.gz"
           else
@@ -287,7 +287,7 @@ jobs:
               exit 1
             fi
           done
-          if [ "${{ inputs.thinlto }}" = "true" ]; then
+          if [ "${{ inputs.thinlto }}" != "false" ]; then
             for b in ld.lld llvm-ar llvm-nm llvm-dis llvm-objcopy llvm-objdump llvm-readelf; do
               test -x "tc/clang/bin/$b"
             done
@@ -308,14 +308,20 @@ jobs:
             CROSS_COMPILE="$PWD/tc/gcc-64/bin/aarch64-linux-android-" \
             CROSS_COMPILE_ARM32="$PWD/tc/gcc-32/bin/arm-linux-androideabi-" \
             ${{ matrix.defconfig }}
-          if [ "${{ inputs.thinlto }}" = "true" ]; then
+          if [ "${{ inputs.thinlto }}" != "false" ]; then
             scripts/config --file out/.config -d LTO_NONE -e LTO_CLANG -e THINLTO
-            make O=out ${THINLTO_ARGS:-} CC="$PWD/tc/clang/bin/clang" \
+          else
+            scripts/config --file out/.config -d THINLTO -d LTO_CLANG -d LTO -e LTO_NONE
+          fi
+          make O=out ${THINLTO_ARGS:-} CC="$PWD/tc/clang/bin/clang" \
               LLVM_IAS=1 \
               CROSS_COMPILE="$PWD/tc/gcc-64/bin/aarch64-linux-android-" \
               CROSS_COMPILE_ARM32="$PWD/tc/gcc-32/bin/arm-linux-androideabi-" olddefconfig
+          if [ "${{ inputs.thinlto }}" != "false" ]; then
             grep -qx 'CONFIG_THINLTO=y' out/.config
             grep -qx 'CONFIG_LTO_CLANG=y' out/.config
+          else
+            grep -qx 'CONFIG_LTO_NONE=y' out/.config
           fi
 
       - name: Resolve boot image artifact
@@ -370,7 +376,7 @@ jobs:
             -j"$(nproc)" "$IMAGE_NAME"
 
       - name: ThinLTO link and module gate (experimental)
-        if: ${{ inputs.thinlto }}
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.thinlto }}
         run: |
           set -eo pipefail
           export ARCH=arm64 SUBARCH=arm64 CLANG_TRIPLE=aarch64-linux-gnu-
@@ -467,7 +473,7 @@ jobs:
             echo ":: error::out/mm/vmscan.o missing - mm was not built"
             exit 1
           fi
-          if [ "${{ inputs.thinlto }}" = "true" ]; then
+          if [ "${{ inputs.thinlto }}" != "false" ]; then
             NM_TOOL="$PWD/tc/clang/bin/llvm-nm"
           else
             NM_TOOL=nm

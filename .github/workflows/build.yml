@@ -521,11 +521,21 @@ jobs:
             echo ":: error::out/mm/vmscan.o missing - mm was not built"
             exit 1
           fi
-          if ! strings out/mm/vmscan.o | grep -q 'Re-swappiness: MGLRU anon/file independent aging'; then
-            echo ":: error::Re-swappiness banner string not in out/mm/vmscan.o - the port did not compile in"
-            exit 1
+          # vmscan.o is LLVM bitcode under ThinLTO, so `strings` cannot see
+          # the banner; verify the macro in source instead.
+          if [ "${{ inputs.thinlto }}" != "false" ]; then
+            if ! grep -q 'RESWAPPINESS_PROGNAME' mm/vmscan.c; then
+              echo "::error::Re-swappiness banner macro missing from mm/vmscan.c source"
+              exit 1
+            fi
+            echo "::notice::Re-swappiness v1.3 present (source-verified; LTO)"
+          else
+            if ! strings out/mm/vmscan.o | grep -q 'Re-swappiness: MGLRU anon/file independent aging'; then
+              echo ":: error::Re-swappiness banner string not in out/mm/vmscan.o - the port did not compile in"
+              exit 1
+            fi
+            echo "::notice::Re-swappiness v1.3 present in out/mm/vmscan.o (independent anon/file aging)"
           fi
-          echo "::notice::Re-swappiness v1.3 present in out/mm/vmscan.o (independent anon/file aging)"
 
 
       - name: KSU / SUSFS symbol gate (warn-only)

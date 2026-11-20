@@ -57,10 +57,17 @@ static inline void *susfs_kvmalloc(size_t size, gfp_t flags)
 }
 #endif
 
+#ifdef SUSFS_KERNEL_READ_NEW
+static inline int susfs_kernel_read(struct file *fp, void *buf, size_t size, loff_t *pos)
+{
+	return kernel_read(fp, buf, size, pos);
+}
+#else
 static inline int susfs_kernel_read(struct file *fp, void *buf, size_t size, loff_t *pos)
 {
 	return kernel_read(fp, *pos, buf, size);
 }
+#endif
 
 #ifdef CONFIG_KSU_SUSFS_ENABLE_LOG
 DEFINE_STATIC_KEY_TRUE(susfs_is_log_enabled);
@@ -71,6 +78,8 @@ DEFINE_STATIC_KEY_TRUE(susfs_is_log_enabled);
 #else
 #define SUSFS_LOGI(fmt, ...)
 #define SUSFS_LOGE(fmt, ...)
+#define SUSFS_LOGI_RL(fmt, ...)
+#define SUSFS_LOGE_RL(fmt, ...)
 #endif
 
 /*
@@ -384,63 +393,45 @@ static void susfs_run_sus_path_loop(void) {
 	revert_creds(saved);
 }
 
-static inline bool is_i_uid_not_allowed(uid_t i_uid) {
-	return likely(current_uid().val != i_uid);
-}
+bool susfs_is_uid_allowed_for_sus_path(uid_t uid);
 
-/* - Please note that path inside /sdcard will be still visible to MediaProvider module,
- *   since the uid of path like /sdcard/TWRP will be the uid of your MediaProvider module.
- */
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 6, 0)
-bool susfs_is_inode_sus_path(struct mnt_idmap* idmap, struct inode *inode)
-#else
-bool susfs_is_inode_sus_path(struct inode *inode)
-#endif
+__attribute__((hot)) bool susfs_is_inode_sus_path(struct inode *inode)
 {
+	uid_t uid = current_uid().val % 100000;
 	struct fuse_inode *fi = NULL;
-	if (!susfs_is_current_proc_umounted_app()) {
+
+	if (uid < 10000) {
 		return false;
 	}
+
 	if (!inode->i_mapping) {
 		SUSFS_LOGE("inode->i_mapping is NULL\n");
 		return false;
 	}
+
 	if (inode->i_sb->s_magic == FUSE_SUPER_MAGIC) {
 		fi = get_fuse_inode(inode);
 		if (!fi || !fi->inode.i_mapping) {
 			SUSFS_LOGE("fi || fi->inode.i_mapping is NULL\n");
 			return false;
 		}
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 6, 0)
+
 		if (unlikely(test_bit(AS_FLAGS_SUS_PATH, &fi->inode.i_state) &&
-			is_i_uid_not_allowed(i_uid_into_vfsuid(idmap, &fi->inode).val)))
-#elif LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)
-		if (unlikely(test_bit(AS_FLAGS_SUS_PATH, &fi->inode.i_state) &&
-			is_i_uid_not_allowed(i_uid_into_mnt(i_user_ns(&fi->inode), &fi->inode).val)))
-#else
-		if (unlikely(test_bit(AS_FLAGS_SUS_PATH, &fi->inode.i_state) &&
-			is_i_uid_not_allowed(fi->inode.i_uid.val)))
-#endif
+			likely(!susfs_is_uid_allowed_for_sus_path(uid))))
 		{
-			SUSFS_LOGI("hiding path with ino '%lu'\n", inode->i_ino);
+			//SUSFS_LOGI("hiding path with ino '%lu'\n", inode->i_ino);
 			return true;
 		}
 		return false;
 	}
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 6, 0)
+
 	if (unlikely(test_bit(AS_FLAGS_SUS_PATH, &inode->i_state) &&
-		is_i_uid_not_allowed(i_uid_into_vfsuid(idmap, inode).val)))
-#elif LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)
-	if (unlikely(test_bit(AS_FLAGS_SUS_PATH, &inode->i_state) &&
-		is_i_uid_not_allowed(i_uid_into_mnt(i_user_ns(inode), inode).val)))
-#else
-	if (unlikely(test_bit(AS_FLAGS_SUS_PATH, &inode->i_state) &&
-		is_i_uid_not_allowed(inode->i_uid.val)))
-#endif
+		likely(!susfs_is_uid_allowed_for_sus_path(uid))))
 	{
-		SUSFS_LOGI("hiding path with ino '%lu'\n", inode->i_ino);
+		//SUSFS_LOGI("hiding path with ino '%lu'\n", inode->i_ino);
 		return true;
 	}
+
 	return false;
 }
 
@@ -1451,41 +1442,99 @@ static bool susfs_is_valid_app_name(const char *app_name) {
  * Returns 0 on success, a negative errno on failure.
  */
 static int susfs_resolve_priority_app_uid(const char *app_name, uid_t *uid) {
-	char app_path[512];
-	struct path path;
-	struct kstat st;
-	int len;
-	int ret;
+	struct file *fp;
+	char *buf = NULL;
+	char *line, *tmp, *p;
+	char *pkg_name, *uid_str;
+	loff_t pos = 0;
+	size_t size;
+	unsigned long val;
+	int ret = -ENOENT;
 
-	len = scnprintf(app_path, sizeof(app_path), "/data/data/%s", app_name);
-	if (len < 0 || len >= sizeof(app_path)) {
-		SUSFS_LOGE("the app name '%s' is too long\n", app_name);
+	if (!app_name || !*app_name || !uid)
 		return -EINVAL;
-	}
 
-	ret = kern_path(app_path, LOOKUP_FOLLOW, &path);
-	if (ret) {
-		SUSFS_LOGE("failed to look up '%s': %d\n", app_path, ret);
+	if (!susfs_is_valid_app_name(app_name))
+		return -EINVAL;
+
+	fp = filp_open("/data/system/packages.list", O_RDONLY | O_NOATIME, 0);
+	if (IS_ERR(fp)) {
+		ret = PTR_ERR(fp);
+		SUSFS_LOGE("failed to open /data/system/packages.list: %d\n", ret);
 		return ret;
 	}
 
-#if defined(STATX_BASIC_STATS)
-	ret = vfs_getattr(&path, &st, STATX_BASIC_STATS, 0);
-#else
-	ret = vfs_getattr(&path, &st);
-#endif
-	path_put(&path);
-	if (ret) {
-		SUSFS_LOGE("failed to get the attributes of '%s': %d\n", app_path, ret);
-		return ret;
+	size = i_size_read(file_inode(fp));
+	if (size <= 0 || size > (4 * 1024 * 1024)) {
+		filp_close(fp, NULL);
+		return -EFBIG;
 	}
 
-	*uid = from_kuid(&init_user_ns, st.uid);
-	if (*uid < SUSFS_PRIORITY_UID_FILTER_MIN_UID ||
-		*uid > SUSFS_PRIORITY_UID_FILTER_MAX_UID)
-		return -EINVAL;
+	buf = vmalloc(size + 1);
+	if (!buf) {
+		filp_close(fp, NULL);
+		return -ENOMEM;
+	}
+	buf[size] = '\0';
 
-	return 0;
+	ret = susfs_kernel_read(fp, buf, size, &pos);
+	filp_close(fp, NULL);
+	if (ret != (int)size) {
+		vfree(buf);
+		return -EIO;
+	}
+
+	line = buf;
+	while (line && *line) {
+		p = strchr(line, '\n');
+		if (p) {
+			*p = '\0';
+			tmp = p + 1;
+		} else {
+			tmp = NULL;
+		}
+
+		/* skip empty lines */
+		if (*line == '\0' || *line == '\r') {
+			line = tmp;
+			continue;
+		}
+
+		/* packages.list format: <package> <uid> <gid> ... */
+		pkg_name = strsep(&line, " \t");
+		if (!pkg_name || *pkg_name == '\0') {
+			line = tmp;
+			continue;
+		}
+
+		uid_str = strsep(&line, " \t");
+		if (!uid_str || *uid_str == '\0') {
+			line = tmp;
+			continue;
+		}
+
+		if (!strcmp(pkg_name, app_name)) {
+			if (kstrtoul(uid_str, 10, &val)) {
+				vfree(buf);
+				return -EINVAL;
+			}
+
+			*uid = (uid_t)val % 100000;
+
+			vfree(buf);
+
+			if (*uid < SUSFS_UID_FILTER_MIN_UID ||
+			    *uid > SUSFS_UID_FILTER_MAX_UID)
+				return -EINVAL;
+
+			return 0;
+		}
+
+		line = tmp;
+	}
+
+	vfree(buf);
+	return -ENOENT;
 }
 
 /*
@@ -1801,6 +1850,29 @@ static char *susfs_sus_path_app_strings = NULL;
 /* Ensures that there is only one resolving thread running at the same time */
 static atomic_t susfs_sus_path_app_strings_running = ATOMIC_INIT(0);
 
+bool susfs_is_uid_allowed_for_sus_path(uid_t uid) {
+	struct susfs_sus_path_uid_filter_bitmap *bitmap;
+
+	if (uid >= 90000)
+		return true;
+
+	if (uid < SUSFS_UID_FILTER_MIN_UID ||
+		uid > SUSFS_UID_FILTER_MAX_UID)
+		return false;
+
+	rcu_read_lock();
+	bitmap = rcu_dereference(sus_path_uid_filter_bitmap);
+	if (likely(bitmap)) {
+		if (test_bit(uid - SUSFS_UID_FILTER_MIN_UID, bitmap->bits)) {
+			rcu_read_unlock();
+			return true;
+		}
+	}
+
+	rcu_read_unlock();
+	return false;
+}
+
 /*
  * Checks whether the given string is a valid app package name.
  * Returns true if it is a valid app package name.
@@ -2076,7 +2148,8 @@ void susfs_set_sus_path_uid_filter(void __user **user_info) {
 		is_uid_filter_set_before = true;
 	mutex_unlock(&susfs_mutex_lock_sus_path_uid_filter);
 	synchronize_rcu();
-	kfree_rcu(old_bitmap, rcu);
+	if (old_bitmap)
+		kfree_rcu(old_bitmap, rcu);
 
 	SUSFS_LOGI("the sus path uid filter is set\n");
 	err = 0;
@@ -2154,7 +2227,8 @@ static int susfs_sus_path_app_strings_worker(void *data) {
 	new_bitmap = NULL;
 	mutex_unlock(&susfs_mutex_lock_sus_path_uid_filter);
 	synchronize_rcu();
-	kfree_rcu(old_bitmap, rcu);
+	if (old_bitmap)
+		kfree_rcu(old_bitmap, rcu);
 
 	SUSFS_LOGI("the uids of the sus path uid filter are resolved again\n");
 

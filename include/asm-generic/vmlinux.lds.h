@@ -448,7 +448,7 @@
 #define SECURITY_INIT							\
 	.security_initcall.init : AT(ADDR(.security_initcall.init) - LOAD_OFFSET) { \
 		VMLINUX_SYMBOL(__security_initcall_start) = .;		\
-		KEEP(*(.security_initcall.init))			\
+		KEEP(*(.security_initcall.init*))			\
 		VMLINUX_SYMBOL(__security_initcall_end) = .;		\
 	}
 
@@ -714,12 +714,12 @@
 
 #define INIT_CALLS_LEVEL(level)						\
 		VMLINUX_SYMBOL(__initcall##level##_start) = .;		\
-		KEEP(*(.initcall##level##.init))			\
-		KEEP(*(.initcall##level##s.init))			\
+		KEEP(*(.initcall##level##.init*))			\
+		KEEP(*(.initcall##level##s.init*))			\
 
 #define INIT_CALLS							\
 		VMLINUX_SYMBOL(__initcall_start) = .;			\
-		KEEP(*(.initcallearly.init))				\
+		KEEP(*(.initcallearly.init*))				\
 		INIT_CALLS_LEVEL(0)					\
 		INIT_CALLS_LEVEL(1)					\
 		INIT_CALLS_LEVEL(2)					\
@@ -733,12 +733,12 @@
 
 #define CON_INITCALL							\
 		VMLINUX_SYMBOL(__con_initcall_start) = .;		\
-		KEEP(*(.con_initcall.init))				\
+		KEEP(*(.con_initcall.init*))				\
 		VMLINUX_SYMBOL(__con_initcall_end) = .;
 
 #define SECURITY_INITCALL						\
 		VMLINUX_SYMBOL(__security_initcall_start) = .;		\
-		KEEP(*(.security_initcall.init))			\
+		KEEP(*(.security_initcall.init*))			\
 		VMLINUX_SYMBOL(__security_initcall_end) = .;
 
 #ifdef CONFIG_BLK_DEV_INITRD

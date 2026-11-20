@@ -74,7 +74,7 @@ modversions()
 		return
 	fi
 
-	rm -f .tmp_symversions
+	: > .tmp_symversions
 
 	for a in built-in.o ${KBUILD_VMLINUX_LIBS}; do
 		for o in $(${AR} t $a); do
@@ -110,7 +110,16 @@ modpost_link()
 		info LD vmlinux.o
 	fi
 
+	if [ -n "${CONFIG_THINLTO}" ]; then
+		# Generate order before LLVM merges compilation units.
+		${PERL:-perl} "${srctree}/scripts/generate_initcall_order.pl" \
+			${KBUILD_VMLINUX_INIT} ${KBUILD_VMLINUX_MAIN} > .tmp_lto.lds
+		# modversions writes a separate CRC script; order must stay intact.
+		local versions="$(modversions)"
+		${LD} ${LDFLAGS} -r -o ${1} -T .tmp_lto.lds ${versions} ${objects}
+	else
 	${LD} ${LDFLAGS} -r -o ${1} $(modversions) ${objects}
+	fi
 }
 
 # If CONFIG_LTO_CLANG is selected, we postpone running recordmcount until
@@ -143,7 +152,7 @@ vmlinux_link()
 			ldflags="${LDFLAGS_FINAL_vmlinux} ${LDFLAGS_vmlinux}"
 		fi
 
-		if [[ -n "${CONFIG_THIN_ARCHIVES}" && -z "${CONFIG_LTO_CLANG}" ]]; then
+		if [ -n "${CONFIG_THIN_ARCHIVES}" ] && [ -z "${CONFIG_LTO_CLANG}" ]; then
 			objects="--whole-archive built-in.o ${1}"
 		else
 			objects="${KBUILD_VMLINUX_INIT}			\

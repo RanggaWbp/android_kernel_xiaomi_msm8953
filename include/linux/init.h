@@ -175,9 +175,23 @@ extern bool initcall_debug;
  * as KEEP() in the linker script.
  */
 
+#ifdef CONFIG_THINLTO
+  #define ___lto_initcall(c, l, fn, id, __sec) \
+	static initcall_t __initcall_##c##_##l##_##fn##id __used \
+		__attribute__((__section__( #__sec \
+			__stringify(.init..##c##_##l##_##fn)))) = fn;
+  #define __lto_initcall(c, l, fn, id, __sec) \
+	___lto_initcall(c, l, fn, id, __sec)
+
+  #define ___define_initcall(fn, id, __sec) \
+	__lto_initcall(__COUNTER__, __LINE__, fn, id, __sec)
+#define __define_initcall(fn, id) ___define_initcall(fn, id, .initcall##id)
+#else
 #define __define_initcall(fn, id) \
 	static initcall_t __initcall_name(fn, id) __used \
 	__attribute__((__section__(".initcall" #id ".init"))) = fn;
+
+#endif
 
 /*
  * Early initcalls run before initializing SMP.
@@ -216,6 +230,10 @@ extern bool initcall_debug;
 #define __exitcall(fn)						\
 	static exitcall_t __exitcall_##fn __exit_call = fn
 
+#ifdef CONFIG_THINLTO
+#define console_initcall(fn) ___define_initcall(fn, con, .con_initcall)
+#define security_initcall(fn) ___define_initcall(fn, security, .security_initcall)
+#else
 #define console_initcall(fn)					\
 	static initcall_t __initcall_##fn			\
 	__used __section(.con_initcall.init) = fn
@@ -223,6 +241,8 @@ extern bool initcall_debug;
 #define security_initcall(fn)					\
 	static initcall_t __initcall_##fn			\
 	__used __section(.security_initcall.init) = fn
+
+#endif
 
 struct obs_kernel_param {
 	const char *str;

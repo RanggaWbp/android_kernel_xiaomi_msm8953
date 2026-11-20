@@ -1,0 +1,365 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/*
+ * Copyright (C) 2019 HUAWEI, Inc.
+ *             https://www.huawei.com/
+ */
+#include "compress.h"
+#include <linux/module.h>
+#include <linux/lz4.h>
+
+#ifndef LZ4_DISTANCE_MAX	/* history window size */
+#define LZ4_DISTANCE_MAX 65535	/* set to maximum value by default */
+#endif
+
+#define LZ4_MAX_DISTANCE_PAGES	(DIV_ROUND_UP(LZ4_DISTANCE_MAX, PAGE_SIZE) + 1)
+#ifndef LZ4_DECOMPRESS_INPLACE_MARGIN
+#define LZ4_DECOMPRESS_INPLACE_MARGIN(srcsize)  (((srcsize) >> 8) + 32)
+#endif
+
+struct z_erofs_decompressor {
+	/*
+	 * if destpages have sparsed pages, fill them with bounce pages.
+	 * it also check whether destpages indicate continuous physical memory.
+	 */
+	int (*prepare_destpages)(struct z_erofs_decompress_req *rq,
+				 struct list_head *pagepool);
+	int (*decompress)(struct z_erofs_decompress_req *rq, u8 *out);
+	char *name;
+};
+
+int z_erofs_load_lz4_config(struct super_block *sb,
+			    struct erofs_super_block *dsb,
+			    struct z_erofs_lz4_cfgs *lz4, int size)
+{
+	struct erofs_sb_info *sbi = EROFS_SB(sb);
+	u16 distance;
+
+	if (lz4) {
+		if (size < 0 || size < sizeof(struct z_erofs_lz4_cfgs)) {
+			erofs_err(sb, "invalid lz4 cfgs, size=%u", size);
+			return -EINVAL;
+		}
+		distance = le16_to_cpu(lz4->max_distance);
+
+		sbi->lz4.max_pclusterblks = le16_to_cpu(lz4->max_pclusterblks);
+		if (!sbi->lz4.max_pclusterblks) {
+			sbi->lz4.max_pclusterblks = 1;	/* reserved case */
+		} else if (sbi->lz4.max_pclusterblks >
+			   Z_EROFS_PCLUSTER_MAX_SIZE / EROFS_BLKSIZ) {
+			erofs_err(sb, "too large lz4 pclusterblks %u",
+				  sbi->lz4.max_pclusterblks);
+			return -EINVAL;
+		} else if (sbi->lz4.max_pclusterblks >= 2) {
+			erofs_info(sb, "EXPERIMENTAL big pcluster feature in use. Use at your own risk!");
+		}
+	} else {
+		distance = le16_to_cpu(dsb->u1.lz4_max_distance);
+		sbi->lz4.max_pclusterblks = 1;
+	}
+
+	/* The on-disk u16 distance is at most 65535; zero means default. */
+	sbi->lz4.max_distance_pages = distance ?
+					DIV_ROUND_UP(distance, PAGE_SIZE) + 1 :
+					LZ4_MAX_DISTANCE_PAGES;
+	return erofs_pcpubuf_growsize(sbi->lz4.max_pclusterblks);
+}
+
+static int z_erofs_lz4_prepare_destpages(struct z_erofs_decompress_req *rq,
+					 struct list_head *pagepool)
+{
+	const unsigned int nr =
+		PAGE_ALIGN(rq->pageofs_out + rq->outputsize) >> PAGE_SHIFT;
+	struct page *availables[LZ4_MAX_DISTANCE_PAGES] = { NULL };
+	unsigned long bounced[DIV_ROUND_UP(LZ4_MAX_DISTANCE_PAGES,
+					   BITS_PER_LONG)] = { 0 };
+	unsigned int lz4_max_distance_pages =
+				EROFS_SB(rq->sb)->lz4.max_distance_pages;
+	void *kaddr = NULL;
+	unsigned int i, j, top;
+
+	if (!lz4_max_distance_pages ||
+	    lz4_max_distance_pages > ARRAY_SIZE(availables))
+		return -EFSCORRUPTED;
+	top = 0;
+	for (i = j = 0; i < nr; ++i, ++j) {
+		struct page *const page = rq->out[i];
+		struct page *victim;
+
+		if (j >= lz4_max_distance_pages)
+			j = 0;
+
+		/* 'valid' bounced can only be tested after a complete round */
+		if (test_bit(j, bounced)) {
+			DBG_BUGON(i < lz4_max_distance_pages);
+			DBG_BUGON(top >= lz4_max_distance_pages);
+			availables[top++] = rq->out[i - lz4_max_distance_pages];
+		}
+
+		if (page) {
+			__clear_bit(j, bounced);
+			if (kaddr) {
+				if (kaddr + PAGE_SIZE == page_address(page))
+					kaddr += PAGE_SIZE;
+				else
+					kaddr = NULL;
+			} else if (!i) {
+				kaddr = page_address(page);
+			}
+			continue;
+		}
+		kaddr = NULL;
+		__set_bit(j, bounced);
+
+		if (top) {
+			victim = availables[--top];
+			get_page(victim);
+		} else {
+			victim = erofs_allocpage(pagepool,
+						 GFP_KERNEL | __GFP_NOFAIL);
+			set_page_private(victim, Z_EROFS_SHORTLIVED_PAGE);
+		}
+		rq->out[i] = victim;
+	}
+	return kaddr ? 1 : 0;
+}
+
+static void *z_erofs_handle_inplace_io(struct z_erofs_decompress_req *rq,
+			void *inpage, unsigned int *inputmargin, int *maptype)
+{
+	unsigned int nrpages_in;
+	unsigned int inputsize, total;
+	struct page **in;
+	void *src, *tmp;
+
+	inputsize = rq->inputsize;
+	nrpages_in = PAGE_ALIGN(inputsize) >> PAGE_SHIFT;
+	/* Separate vmaps can alias physically without satisfying LZ4's
+	 * virtual-address overlap rules. Always copy overlapping input.
+	 */
+	if (rq->inplace_io)
+		goto docopy;
+
+	if (nrpages_in <= 1) {
+		*maptype = 0;
+		return inpage;
+	}
+	kunmap_atomic(inpage);
+	might_sleep();
+	src = erofs_vm_map_ram(rq->in, nrpages_in);
+	if (!src)
+		return ERR_PTR(-ENOMEM);
+	*maptype = 1;
+	return src;
+
+docopy:
+	/* Or copy compressed data which can be overlapped to per-CPU buffer */
+	in = rq->in;
+	src = erofs_get_pcpubuf(nrpages_in);
+	if (!src) {
+		DBG_BUGON(1);
+		kunmap_atomic(inpage);
+		return ERR_PTR(-EFAULT);
+	}
+
+	tmp = src;
+	total = rq->inputsize;
+	while (total) {
+		unsigned int page_copycnt =
+			min_t(unsigned int, total, PAGE_SIZE - *inputmargin);
+
+		if (!inpage)
+			inpage = kmap_atomic(*in);
+		memcpy(tmp, inpage + *inputmargin, page_copycnt);
+		kunmap_atomic(inpage);
+		inpage = NULL;
+		tmp += page_copycnt;
+		total -= page_copycnt;
+		++in;
+		*inputmargin = 0;
+	}
+	*maptype = 2;
+	return src;
+}
+
+static int z_erofs_lz4_decompress(struct z_erofs_decompress_req *rq, u8 *out)
+{
+	unsigned int inputmargin;
+	u8 *headpage, *src;
+	bool support_0padding;
+	int ret, maptype;
+
+	DBG_BUGON(*rq->in == NULL);
+	headpage = kmap_atomic(*rq->in);
+	inputmargin = 0;
+	support_0padding = false;
+
+	/* decompression inplace is only safe when 0padding is enabled */
+	if (erofs_sb_has_lz4_0padding(EROFS_SB(rq->sb))) {
+		support_0padding = true;
+
+		while (!headpage[inputmargin & ~PAGE_MASK])
+			if (!(++inputmargin & ~PAGE_MASK))
+				break;
+
+		if (inputmargin >= rq->inputsize) {
+			kunmap_atomic(headpage);
+			return -EIO;
+		}
+	}
+
+	rq->inputsize -= inputmargin;
+	src = z_erofs_handle_inplace_io(rq, headpage, &inputmargin, &maptype);
+	if (IS_ERR(src))
+		return PTR_ERR(src);
+
+	/* legacy format could compress extra data in a pcluster. */
+	if (rq->partial_decoding || !support_0padding)
+		ret = LZ4_decompress_safe_partial(src + inputmargin, out,
+				rq->inputsize, rq->outputsize, rq->outputsize);
+	else
+		ret = LZ4_decompress_safe(src + inputmargin, out,
+					  rq->inputsize, rq->outputsize);
+
+	if (ret != rq->outputsize) {
+		erofs_err(rq->sb, "failed to decompress %d in[%u, %u] out[%u]",
+			  ret, rq->inputsize, inputmargin, rq->outputsize);
+
+		WARN_ON(1);
+		print_hex_dump(KERN_DEBUG, "[ in]: ", DUMP_PREFIX_OFFSET,
+			       16, 1, src + inputmargin, rq->inputsize, true);
+		print_hex_dump(KERN_DEBUG, "[out]: ", DUMP_PREFIX_OFFSET,
+			       16, 1, out, rq->outputsize, true);
+
+		if (ret >= 0 && ret < rq->outputsize)
+			memset(out + ret, 0, rq->outputsize - ret);
+		ret = -EIO;
+	} else {
+		ret = 0;
+	}
+
+	if (maptype == 0) {
+		kunmap_atomic(src);
+	} else if (maptype == 1) {
+		vm_unmap_ram(src, PAGE_ALIGN(rq->inputsize) >> PAGE_SHIFT);
+	} else if (maptype == 2) {
+		erofs_put_pcpubuf(src);
+	} else {
+		DBG_BUGON(1);
+		return -EFAULT;
+	}
+	return ret;
+}
+
+static struct z_erofs_decompressor decompressors[] = {
+	[Z_EROFS_COMPRESSION_SHIFTED] = {
+		.name = "shifted"
+	},
+	[Z_EROFS_COMPRESSION_LZ4] = {
+		.prepare_destpages = z_erofs_lz4_prepare_destpages,
+		.decompress = z_erofs_lz4_decompress,
+		.name = "lz4"
+	},
+};
+
+static int z_erofs_decompress_generic(struct z_erofs_decompress_req *rq,
+				      struct list_head *pagepool)
+{
+	const unsigned int nrpages_out =
+		PAGE_ALIGN(rq->pageofs_out + rq->outputsize) >> PAGE_SHIFT;
+	const struct z_erofs_decompressor *alg = decompressors + rq->alg;
+	unsigned int dst_maptype;
+	void *dst;
+	int ret;
+
+	/* one optimized fast path only for non bigpcluster cases yet */
+	if (rq->inputsize <= PAGE_SIZE && nrpages_out == 1 &&
+	    rq->out[0] && !rq->inplace_io) {
+		DBG_BUGON(!*rq->out);
+		dst = kmap_atomic(*rq->out);
+		dst_maptype = 0;
+		goto dstmap_out;
+	}
+
+	/* general decoding path which can be used for all cases */
+	ret = alg->prepare_destpages(rq, pagepool);
+	if (ret < 0)
+		return ret;
+	if (ret) {
+		dst = page_address(*rq->out);
+		dst_maptype = 1;
+		goto dstmap_out;
+	}
+
+	dst = erofs_vm_map_ram(rq->out, nrpages_out);
+	if (!dst)
+		return -ENOMEM;
+	dst_maptype = 2;
+
+dstmap_out:
+	ret = alg->decompress(rq, dst + rq->pageofs_out);
+
+	if (!dst_maptype)
+		kunmap_atomic(dst);
+	else if (dst_maptype == 2)
+		vm_unmap_ram(dst, nrpages_out);
+	return ret;
+}
+
+static int z_erofs_shifted_transform(const struct z_erofs_decompress_req *rq,
+				     struct list_head *pagepool)
+{
+	const unsigned int nrpages_out =
+		PAGE_ALIGN(rq->pageofs_out + rq->outputsize) >> PAGE_SHIFT;
+	const unsigned int first = min_t(unsigned int, rq->outputsize,
+					PAGE_SIZE - rq->pageofs_out);
+	const unsigned int remaining = rq->outputsize - first;
+	unsigned char *src, *dst;
+
+	/* A shifted extent is an uncompressed fragment of one input page. */
+	if (rq->inputsize > PAGE_SIZE || rq->outputsize > rq->inputsize ||
+	    nrpages_out > 2 || (remaining && !rq->out[1]))
+		return -EFSCORRUPTED;
+
+	if (rq->out[0] == *rq->in) {
+		if (rq->pageofs_out || nrpages_out != 1)
+			return -EFSCORRUPTED;
+		return 0;
+	}
+
+	src = kmap_atomic(*rq->in);
+	if (rq->out[0]) {
+		dst = kmap_atomic(rq->out[0]);
+		memcpy(dst + rq->pageofs_out, src, first);
+		kunmap_atomic(dst);
+	}
+
+	if (remaining) {
+		if (rq->out[1] == *rq->in) {
+			memmove(src, src + first, remaining);
+		} else {
+			dst = kmap_atomic(rq->out[1]);
+			memcpy(dst, src + first, remaining);
+			kunmap_atomic(dst);
+		}
+	}
+	kunmap_atomic(src);
+	return 0;
+}
+
+int z_erofs_decompress(struct z_erofs_decompress_req *rq,
+		       struct list_head *pagepool)
+{
+	unsigned int i;
+
+	if (rq->alg >= ARRAY_SIZE(decompressors) || !rq->inputsize ||
+	    rq->inputsize > Z_EROFS_PCLUSTER_MAX_SIZE || !rq->outputsize ||
+	    rq->outputsize > INT_MAX - PAGE_SIZE ||
+	    rq->pageofs_out >= PAGE_SIZE || !rq->in || !rq->out)
+		return -EFSCORRUPTED;
+	for (i = 0; i < DIV_ROUND_UP(rq->inputsize, PAGE_SIZE); ++i)
+		if (!rq->in[i])
+			return -EIO;
+	if (rq->alg == Z_EROFS_COMPRESSION_SHIFTED)
+		return z_erofs_shifted_transform(rq, pagepool);
+	return z_erofs_decompress_generic(rq, pagepool);
+}

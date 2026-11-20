@@ -91,6 +91,10 @@ STATIC inline int INIT unlz4(u8 *input, long in_len,
 		}
 	}
 
+	if (size < 4) {
+		error("data corrupted");
+		goto exit_2;
+	}
 	chunksize = get_unaligned_le32(inp);
 	if (chunksize == ARCHIVE_MAGICNUMBER) {
 		if (!fill) {
@@ -148,22 +152,31 @@ STATIC inline int INIT unlz4(u8 *input, long in_len,
 				goto exit_2;
 			}
 			size = fill(inp, chunksize);
-			if (size < chunksize) {
+			if (size < 0 || (size_t)size < chunksize) {
 				error("data corrupted");
 				goto exit_2;
 			}
 		}
+		if (chunksize > lz4_compressbound(uncomp_chunksize) ||
+		    size < 0 || chunksize > (size_t)size) {
+			error("data corrupted");
+			goto exit_2;
+		}
 #ifdef PREBOOT
-		if (out_len >= uncomp_chunksize) {
-			dest_len = uncomp_chunksize;
-			out_len -= dest_len;
-		} else
-			dest_len = out_len;
-		ret = lz4_decompress(inp, &chunksize, outp, dest_len);
+		dest_len = out_len < uncomp_chunksize ? out_len : uncomp_chunksize;
+		out_len -= dest_len;
 #else
 		dest_len = uncomp_chunksize;
-		ret = lz4_decompress_unknownoutputsize(inp, chunksize, outp,
-				&dest_len);
+#endif
+		/* Both lengths are bounded by the 8 MiB chunk limit above. */
+		ret = LZ4_decompress_safe((const char *)inp, (char *)outp,
+					  (int)chunksize, (int)dest_len);
+#ifdef PREBOOT
+		if (ret >= 0 && ret != dest_len)
+			ret = -1;
+#else
+		if (ret >= 0)
+			dest_len = ret;
 #endif
 		if (ret < 0) {
 			error("Decoding failed");
@@ -192,6 +205,13 @@ STATIC inline int INIT unlz4(u8 *input, long in_len,
 	}
 
 exit_3:
+#ifdef PREBOOT
+	if (out_len) {
+		error("truncated output");
+		ret = -1;
+		goto exit_2;
+	}
+#endif
 	ret = 0;
 exit_2:
 	if (!input)
@@ -212,6 +232,16 @@ STATIC int INIT __decompress(unsigned char *buf, long in_len,
 			      void (*error)(char *x)
 	)
 {
+	if (!buf || in_len < 4) {
+		error("data corrupted");
+		return -1;
+	}
+	/* A zero output bound means unknown for legacy architecture callers. */
+	if (out_len < 0 || (out_len &&
+	    get_unaligned_le32(buf + in_len - 4) > (unsigned long)out_len)) {
+		error("output buffer too small");
+		return -1;
+	}
 	return unlz4(buf, in_len - 4, fill, flush, output, posp, error);
 }
 #endif

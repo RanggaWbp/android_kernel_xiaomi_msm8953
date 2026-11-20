@@ -209,6 +209,8 @@ source "fs/efivarfs/Kconfig"
 
 endmenu
 
+source "fs/erofs/Kconfig"
+
 menuconfig MISC_FILESYSTEMS
 	bool "Miscellaneous filesystems"
 	default y

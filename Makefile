@@ -685,6 +685,14 @@ export CFLAGS_GCOV CFLAGS_KCOV
 # Make toolchain changes before including arch/$(SRCARCH)/Makefile to ensure
 # ar/cc/ld-* macros return correct values.
 ifdef CONFIG_LTO_CLANG
+ifdef CONFIG_THINLTO
+# ThinLTO uses LLVM's native linker and tools; CI passes absolute tool paths.
+ifneq ($(ld-name),lld)
+$(error CONFIG_THINLTO requires LD=ld.lld)
+endif
+LLVM_AR := $(AR)
+LLVM_DIS ?= llvm-dis
+else
 # use GNU gold with LLVMgold for LTO linking, and LD for vmlinux_link
 LDFINAL_vmlinux := $(LD)
 LD		:= $(LDGOLD)
@@ -693,6 +701,7 @@ LDFLAGS		+= -plugin LLVMgold.so
 # of objdump for processing symbol versions and exports
 LLVM_AR		:= llvm-ar
 LLVM_DIS	:= llvm-dis
+endif
 export LLVM_AR LLVM_DIS
 endif
 
@@ -717,7 +726,12 @@ KBUILD_CFLAGS	+= $(call cc-option,-fdata-sections,)
 endif
 
 ifdef CONFIG_LTO_CLANG
+ifdef CONFIG_THINLTO
+lto-clang-flags	:= -flto=thin -fvisibility=default
+KBUILD_LDFLAGS_MODULE += -T $(srctree)/scripts/module-lto.lds
+else
 lto-clang-flags	:= -flto -fvisibility=hidden
+endif
 
 # allow disabling only clang LTO where needed
 DISABLE_LTO_CLANG := -fno-lto -fvisibility=default
@@ -1226,7 +1240,11 @@ ifdef CONFIG_LTO_CLANG
   ifneq ($(call clang-ifversion, -ge, 0500, y), y)
 	@echo Cannot use CONFIG_LTO_CLANG: requires clang 5.0 or later >&2 && exit 1
   endif
-  ifneq ($(call gold-ifversion, -ge, 112000000, y), y)
+  ifeq ($(CONFIG_THINLTO),y)
+    ifneq ($(ld-name),lld)
+	@echo Cannot use CONFIG_THINLTO: requires ld.lld >&2 && exit 1
+    endif
+  else ifneq ($(call gold-ifversion, -ge, 112000000, y), y)
 	@echo Cannot use CONFIG_LTO_CLANG: requires GNU gold 1.12 or later >&2 && exit 1
   endif
 endif

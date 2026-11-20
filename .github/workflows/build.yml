@@ -4,6 +4,11 @@ on:
   push:
     branches: [BakaSU-susfs]
   workflow_dispatch:
+    inputs:
+      thinlto:
+        description: "Experimental ThinLTO (lld); requires CI and device validation"
+        type: boolean
+        default: false
 
 permissions:
   contents: write # softprops/action-gh-release publishes the release
@@ -172,7 +177,7 @@ jobs:
           # so the log can never claim a feature the build does not have.
           FEATURES=""
           for f in SCHED_BORE:BORE LRU_GEN:MGLRU NTSYNC:NTSYNC \
-                   IOSCHED_ADIOS:ADIOS TCP_CONG_BBR3:BBRv3 NOMOUNT:NoMount \
+                   IOSCHED_ADIOS:ADIOS TCP_CONG_BBR3:BBRv3 NOMOUNT:NoMount EROFS_FS:EROFS THINLTO:ThinLTO \
                    BBG:Baseband-guard REKERNEL:Rekernel \
                    SCHED_POC_SELECTOR:POC-selector CPU_FREQ_GOV_REFLEX:Reflex; do
             sym="${f%%:*}"
@@ -239,11 +244,16 @@ jobs:
             rm -rf "$tmp"
           }
           # ZyC Clang 14 (built for Android kernels; fits 4.9) - primary, fall back to AOSP mirrors
+          if [ "${{ inputs.thinlto }}" = "true" ]; then
+            fetch tc/clang.tar.gz \
+              "https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b/archive/54220fd601050b350b2af7adc913089ebf0e7aed.tar.gz"
+          else
           fetch tc/clang.tar.gz \
             "https://github.com/ZyCromerZ/Clang/releases/download/14.0.6-20261022-release/Clang-14.0.6-20261022.tar.gz" \
             "https://api.github.com/repos/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b/tarball" \
             "https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b/archive/refs/heads/lineage-20.0.tar.gz" \
             "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/master.tar.gz"
+          fi
           stage tc/clang.tar.gz tc/clang clang
           # AOSP GCC 4.9 aarch64 binutils - LineageOS GitHub mirrors as fallback
           fetch tc/gcc64.tar.gz \
@@ -277,6 +287,12 @@ jobs:
               exit 1
             fi
           done
+          if [ "${{ inputs.thinlto }}" = "true" ]; then
+            for b in ld.lld llvm-ar llvm-nm llvm-dis llvm-objcopy llvm-objdump llvm-readelf; do
+              test -x "tc/clang/bin/$b"
+            done
+            echo "THINLTO_ARGS=LD=$PWD/tc/clang/bin/ld.lld AR=$PWD/tc/clang/bin/llvm-ar NM=$PWD/tc/clang/bin/llvm-nm LLVM_DIS=$PWD/tc/clang/bin/llvm-dis" >> "$GITHUB_ENV"
+          fi
           tc/clang/bin/clang --version | head -n 2
           tc/gcc-64/bin/aarch64-linux-android-ld --version | head -n 1
           tc/gcc-32/bin/arm-linux-androideabi-ld --version | head -n 1
@@ -287,11 +303,20 @@ jobs:
         run: |
           set -eo pipefail
           export ARCH=arm64 SUBARCH=arm64 CLANG_TRIPLE=aarch64-linux-gnu-
-          make O=out CC="$PWD/tc/clang/bin/clang" \
+          make O=out ${THINLTO_ARGS:-} CC="$PWD/tc/clang/bin/clang" \
             LLVM_IAS=1 \
             CROSS_COMPILE="$PWD/tc/gcc-64/bin/aarch64-linux-android-" \
             CROSS_COMPILE_ARM32="$PWD/tc/gcc-32/bin/arm-linux-androideabi-" \
             ${{ matrix.defconfig }}
+          if [ "${{ inputs.thinlto }}" = "true" ]; then
+            scripts/config --file out/.config -d LTO_NONE -e LTO_CLANG -e THINLTO
+            make O=out ${THINLTO_ARGS:-} CC="$PWD/tc/clang/bin/clang" \
+              LLVM_IAS=1 \
+              CROSS_COMPILE="$PWD/tc/gcc-64/bin/aarch64-linux-android-" \
+              CROSS_COMPILE_ARM32="$PWD/tc/gcc-32/bin/arm-linux-androideabi-" olddefconfig
+            grep -qx 'CONFIG_THINLTO=y' out/.config
+            grep -qx 'CONFIG_LTO_CLANG=y' out/.config
+          fi
 
       - name: Resolve boot image artifact
         id: img
@@ -312,7 +337,7 @@ jobs:
         run: |
           set -eo pipefail
           export ARCH=arm64 SUBARCH=arm64 CLANG_TRIPLE=aarch64-linux-gnu-
-          make O=out CC="$PWD/tc/clang/bin/clang" \
+          make O=out ${THINLTO_ARGS:-} CC="$PWD/tc/clang/bin/clang" \
             LLVM_IAS=1 \
             CROSS_COMPILE="$PWD/tc/gcc-64/bin/aarch64-linux-android-" \
             CROSS_COMPILE_ARM32="$PWD/tc/gcc-32/bin/arm-linux-androideabi-" \
@@ -326,7 +351,7 @@ jobs:
         run: |
           set -eo pipefail
           export ARCH=arm64 SUBARCH=arm64 CLANG_TRIPLE=aarch64-linux-gnu-
-          make O=out CC="$PWD/tc/clang/bin/clang" \
+          make O=out ${THINLTO_ARGS:-} CC="$PWD/tc/clang/bin/clang" \
             LLVM_IAS=1 \
             CROSS_COMPILE="$PWD/tc/gcc-64/bin/aarch64-linux-android-" \
             CROSS_COMPILE_ARM32="$PWD/tc/gcc-32/bin/arm-linux-androideabi-" \
@@ -338,11 +363,46 @@ jobs:
         run: |
           set -eo pipefail
           export ARCH=arm64 SUBARCH=arm64 CLANG_TRIPLE=aarch64-linux-gnu-
-          make O=out CC="$PWD/tc/clang/bin/clang" \
+          make O=out ${THINLTO_ARGS:-} CC="$PWD/tc/clang/bin/clang" \
             LLVM_IAS=1 \
             CROSS_COMPILE="$PWD/tc/gcc-64/bin/aarch64-linux-android-" \
             CROSS_COMPILE_ARM32="$PWD/tc/gcc-32/bin/arm-linux-androideabi-" \
             -j"$(nproc)" "$IMAGE_NAME"
+
+      - name: ThinLTO link and module gate (experimental)
+        if: ${{ inputs.thinlto }}
+        run: |
+          set -eo pipefail
+          export ARCH=arm64 SUBARCH=arm64 CLANG_TRIPLE=aarch64-linux-gnu-
+          make O=out ${THINLTO_ARGS:-} CC="$PWD/tc/clang/bin/clang" \
+            LLVM_IAS=1 \
+            CROSS_COMPILE="$PWD/tc/gcc-64/bin/aarch64-linux-android-" \
+            CROSS_COMPILE_ARM32="$PWD/tc/gcc-32/bin/arm-linux-androideabi-" \
+            -j"$(nproc)" modules
+          grep -qx 'CONFIG_THINLTO=y' out/.config
+          test -s out/.tmp_lto.lds
+          test -s out/Module.symvers
+          tc/clang/bin/llvm-readelf -h out/vmlinux.o | grep -q AArch64
+          tc/clang/bin/llvm-readelf -h out/vmlinux | grep -q AArch64
+          tc/clang/bin/llvm-dis out/mm/vmscan.o -o /dev/null
+          while IFS= read -r module; do
+            tc/clang/bin/llvm-readelf -h "$module" | grep -q AArch64
+          done < <(find out -name '*.ko' -type f)
+
+      - name: EROFS built-in gate (hard)
+        run: |
+          set -eo pipefail
+          for sym in EROFS_FS EROFS_FS_XATTR EROFS_FS_SECURITY EROFS_FS_ZIP; do
+            grep -qx "CONFIG_${sym}=y" out/.config || {
+              echo "::error::CONFIG_${sym} must be built-in"
+              exit 1
+            }
+          done
+          for obj in super inode data namei dir xattr decompressor zmap zdata; do
+            test -s "out/fs/erofs/${obj}.o"
+          done
+          grep -Eq '[[:space:]]erofs_mount(\.llvm\.[[:alnum:]_]+)?$' out/System.map
+          test ! -e out/fs/erofs/erofs.ko
 
       - name: LZ4KDR zram backend gate (hard)
         run: |
@@ -407,11 +467,16 @@ jobs:
             echo ":: error::out/mm/vmscan.o missing - mm was not built"
             exit 1
           fi
-          if ! nm out/mm/vmscan.o | grep -q ' prepare_workingset_protection'; then
+          if [ "${{ inputs.thinlto }}" = "true" ]; then
+            NM_TOOL="$PWD/tc/clang/bin/llvm-nm"
+          else
+            NM_TOOL=nm
+          fi
+          if ! "$NM_TOOL" out/mm/vmscan.o | grep -q ' prepare_workingset_protection'; then
             echo ":: error::prepare_workingset_protection not in out/mm/vmscan.o - the port did not compile in"
             exit 1
           fi
-          if ! nm out/mm/vmscan.o | grep -q ' vm_workingset_protection_update_handler'; then
+          if ! "$NM_TOOL" out/mm/vmscan.o | grep -q ' vm_workingset_protection_update_handler'; then
             echo ":: error::vm_workingset_protection_update_handler not in out/mm/vmscan.o"
             exit 1
           fi

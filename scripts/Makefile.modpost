@@ -88,7 +88,7 @@ modpost-ext = $(if $(CONFIG_LTO_CLANG),.lto,)
 ifdef CONFIG_LTO_CLANG
 quiet_cmd_cc_lto_link_modules = LD [M]  $@
 cmd_cc_lto_link_modules =						\
-	$(LD) $(ld_flags) -r -o $(@)					\
+	$(LD) $(ld_flags) $(KBUILD_LDFLAGS_MODULE) -r -o $(@)					\
 		$(shell [ -s $(@:$(modpost-ext).o=.o.symversions) ] &&	\
 			echo -T $(@:$(modpost-ext).o=.o.symversions))	\
 		--whole-archive $(filter-out FORCE,$^)

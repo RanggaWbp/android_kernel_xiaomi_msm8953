@@ -8,7 +8,7 @@ on:
       thinlto:
         description: "Experimental ThinLTO (lld); requires CI and device validation"
         type: boolean
-        default: true
+        default: false
 
 permissions:
   contents: write # softprops/action-gh-release publishes the release
@@ -244,7 +244,7 @@ jobs:
             rm -rf "$tmp"
           }
           # ZyC Clang 14 (built for Android kernels; fits 4.9) - primary, fall back to AOSP mirrors
-          if [ "${{ inputs.thinlto }}" != "false" ]; then
+          if [ "${{ inputs.thinlto }}" = "true" ]; then
             fetch tc/clang.tar.gz \
               "https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b/archive/54220fd601050b350b2af7adc913089ebf0e7aed.tar.gz"
           else
@@ -287,7 +287,7 @@ jobs:
               exit 1
             fi
           done
-          if [ "${{ inputs.thinlto }}" != "false" ]; then
+          if [ "${{ inputs.thinlto }}" = "true" ]; then
             for b in ld.lld llvm-ar llvm-nm llvm-dis llvm-objcopy llvm-objdump llvm-readelf; do
               test -x "tc/clang/bin/$b"
             done
@@ -308,20 +308,14 @@ jobs:
             CROSS_COMPILE="$PWD/tc/gcc-64/bin/aarch64-linux-android-" \
             CROSS_COMPILE_ARM32="$PWD/tc/gcc-32/bin/arm-linux-androideabi-" \
             ${{ matrix.defconfig }}
-          if [ "${{ inputs.thinlto }}" != "false" ]; then
+          if [ "${{ inputs.thinlto }}" = "true" ]; then
             scripts/config --file out/.config -d LTO_NONE -e LTO_CLANG -e THINLTO
-          else
-            scripts/config --file out/.config -d THINLTO -d LTO_CLANG -d LTO -e LTO_NONE
-          fi
-          make O=out ${THINLTO_ARGS:-} CC="$PWD/tc/clang/bin/clang" \
+            make O=out ${THINLTO_ARGS:-} CC="$PWD/tc/clang/bin/clang" \
               LLVM_IAS=1 \
               CROSS_COMPILE="$PWD/tc/gcc-64/bin/aarch64-linux-android-" \
               CROSS_COMPILE_ARM32="$PWD/tc/gcc-32/bin/arm-linux-androideabi-" olddefconfig
-          if [ "${{ inputs.thinlto }}" != "false" ]; then
             grep -qx 'CONFIG_THINLTO=y' out/.config
             grep -qx 'CONFIG_LTO_CLANG=y' out/.config
-          else
-            grep -qx 'CONFIG_LTO_NONE=y' out/.config
           fi
 
       - name: Resolve boot image artifact
@@ -376,7 +370,7 @@ jobs:
             -j"$(nproc)" "$IMAGE_NAME"
 
       - name: ThinLTO link and module gate (experimental)
-        if: ${{ github.event_name != 'workflow_dispatch' || inputs.thinlto }}
+        if: ${{ inputs.thinlto }}
         run: |
           set -eo pipefail
           export ARCH=arm64 SUBARCH=arm64 CLANG_TRIPLE=aarch64-linux-gnu-
@@ -473,35 +467,20 @@ jobs:
             echo ":: error::out/mm/vmscan.o missing - mm was not built"
             exit 1
           fi
-          if [ "${{ inputs.thinlto }}" != "false" ]; then
+          if [ "${{ inputs.thinlto }}" = "true" ]; then
             NM_TOOL="$PWD/tc/clang/bin/llvm-nm"
           else
             NM_TOOL=nm
           fi
-          # prepare_workingset_protection is static; under ThinLTO clang inlines it,
-          # so it disappears from the symbol table. Verify it via the checked-in
-          # source instead, and verify the global handler symbol in the object.
-          if [ "${{ inputs.thinlto }}" != "false" ]; then
-            if ! grep -q 'static void prepare_workingset_protection' mm/vmscan.c; then
-              echo "::error::prepare_workingset_protection missing from mm/vmscan.c source"
-              exit 1
-            fi
-            if ! "$NM_TOOL" out/mm/vmscan.o | grep -q ' vm_workingset_protection_update_handler'; then
-              echo "::error::vm_workingset_protection_update_handler not in out/mm/vmscan.o"
-              exit 1
-            fi
-            echo "::notice::prepare_workingset_protection (source-verified) + vm_workingset_protection_update_handler (object) present"
-          else
-            if ! "$NM_TOOL" out/mm/vmscan.o | grep -q ' prepare_workingset_protection'; then
-              echo "::error::prepare_workingset_protection not in out/mm/vmscan.o - the port did not compile in"
-              exit 1
-            fi
-            if ! "$NM_TOOL" out/mm/vmscan.o | grep -q ' vm_workingset_protection_update_handler'; then
-              echo "::error::vm_workingset_protection_update_handler not in out/mm/vmscan.o"
-              exit 1
-            fi
-            echo "::notice::prepare_workingset_protection + vm_workingset_protection_update_handler present in out/mm/vmscan.o"
+          if ! "$NM_TOOL" out/mm/vmscan.o | grep -q ' prepare_workingset_protection'; then
+            echo ":: error::prepare_workingset_protection not in out/mm/vmscan.o - the port did not compile in"
+            exit 1
           fi
+          if ! "$NM_TOOL" out/mm/vmscan.o | grep -q ' vm_workingset_protection_update_handler'; then
+            echo ":: error::vm_workingset_protection_update_handler not in out/mm/vmscan.o"
+            exit 1
+          fi
+          echo "::notice::prepare_workingset_protection + vm_workingset_protection_update_handler present in out/mm/vmscan.o"
           # Default must be ON (patch 0002).
           if ! grep -q 'workingset_protection' out/mm/vmscan.o 2>/dev/null; then
             echo "::notice::(sysctl string not embedded in the object; default verified in source)"
@@ -521,21 +500,11 @@ jobs:
             echo ":: error::out/mm/vmscan.o missing - mm was not built"
             exit 1
           fi
-          # vmscan.o is LLVM bitcode under ThinLTO, so `strings` cannot see
-          # the banner; verify the macro in source instead.
-          if [ "${{ inputs.thinlto }}" != "false" ]; then
-            if ! grep -q 'RESWAPPINESS_PROGNAME' mm/vmscan.c; then
-              echo "::error::Re-swappiness banner macro missing from mm/vmscan.c source"
-              exit 1
-            fi
-            echo "::notice::Re-swappiness v1.3 present (source-verified; LTO)"
-          else
-            if ! strings out/mm/vmscan.o | grep -q 'Re-swappiness: MGLRU anon/file independent aging'; then
-              echo ":: error::Re-swappiness banner string not in out/mm/vmscan.o - the port did not compile in"
-              exit 1
-            fi
-            echo "::notice::Re-swappiness v1.3 present in out/mm/vmscan.o (independent anon/file aging)"
+          if ! strings out/mm/vmscan.o | grep -q 'Re-swappiness: MGLRU anon/file independent aging'; then
+            echo ":: error::Re-swappiness banner string not in out/mm/vmscan.o - the port did not compile in"
+            exit 1
           fi
+          echo "::notice::Re-swappiness v1.3 present in out/mm/vmscan.o (independent anon/file aging)"
 
 
       - name: KSU / SUSFS symbol gate (warn-only)

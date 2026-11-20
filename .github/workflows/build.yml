@@ -478,15 +478,30 @@ jobs:
           else
             NM_TOOL=nm
           fi
-          if ! "$NM_TOOL" out/mm/vmscan.o | grep -q ' prepare_workingset_protection'; then
-            echo ":: error::prepare_workingset_protection not in out/mm/vmscan.o - the port did not compile in"
-            exit 1
+          # prepare_workingset_protection is static; under ThinLTO clang inlines it,
+          # so it disappears from the symbol table. Verify it via the checked-in
+          # source instead, and verify the global handler symbol in the object.
+          if [ "${{ inputs.thinlto }}" != "false" ]; then
+            if ! grep -q 'static void prepare_workingset_protection' mm/vmscan.c; then
+              echo "::error::prepare_workingset_protection missing from mm/vmscan.c source"
+              exit 1
+            fi
+            if ! "$NM_TOOL" out/mm/vmscan.o | grep -q ' vm_workingset_protection_update_handler'; then
+              echo "::error::vm_workingset_protection_update_handler not in out/mm/vmscan.o"
+              exit 1
+            fi
+            echo "::notice::prepare_workingset_protection (source-verified) + vm_workingset_protection_update_handler (object) present"
+          else
+            if ! "$NM_TOOL" out/mm/vmscan.o | grep -q ' prepare_workingset_protection'; then
+              echo "::error::prepare_workingset_protection not in out/mm/vmscan.o - the port did not compile in"
+              exit 1
+            fi
+            if ! "$NM_TOOL" out/mm/vmscan.o | grep -q ' vm_workingset_protection_update_handler'; then
+              echo "::error::vm_workingset_protection_update_handler not in out/mm/vmscan.o"
+              exit 1
+            fi
+            echo "::notice::prepare_workingset_protection + vm_workingset_protection_update_handler present in out/mm/vmscan.o"
           fi
-          if ! "$NM_TOOL" out/mm/vmscan.o | grep -q ' vm_workingset_protection_update_handler'; then
-            echo ":: error::vm_workingset_protection_update_handler not in out/mm/vmscan.o"
-            exit 1
-          fi
-          echo "::notice::prepare_workingset_protection + vm_workingset_protection_update_handler present in out/mm/vmscan.o"
           # Default must be ON (patch 0002).
           if ! grep -q 'workingset_protection' out/mm/vmscan.o 2>/dev/null; then
             echo "::notice::(sysctl string not embedded in the object; default verified in source)"

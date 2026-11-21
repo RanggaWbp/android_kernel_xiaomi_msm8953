@@ -92,9 +92,13 @@ SCHED_FEAT(LB_MIN, false)
  * explicit one: a scan that admits nothing concedes to the smallest overshoot
  * it saw.
  *
+ * The concession applies only when the balance pulls into an idle CPU
+ * (env->idle != CPU_NOT_IDLE) and not after a dst redirect; for a busy
+ * destination (or a redirected one) it keeps the plain cost <= imbalance test.
+ *
  * Turn off for a plain "cost <= imbalance" test with no concession.
  */
-SCHED_FEAT(LB_STRICT_BUDGET, true)
+SCHED_FEAT(LB_CONCEDE_CHEAPEST, true)
 
 SCHED_FEAT(ATTACH_AGE_LOAD, true)
 

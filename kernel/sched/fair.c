@@ -8405,6 +8405,9 @@ enum group_type {
 /* This balance operation has detached at least one task. Sticky across the
  * more_balance retries, so it reflects the whole operation, not one scan. */
 #define LBF_MOVED		0x20
+/* sched_balance_rq() redirected this operation from a CPU the tasks could not
+ * run on to another CPU of the same group (LBF_DST_PINNED -> new_dst_cpu). */
+#define LBF_DST_REDIRECTED	0x40
 #define LBF_DST_PINNED  0x04
 #define LBF_SOME_PINNED	0x08
 #define LBF_BIG_TASK_ACTIVE_BALANCE 0x80
@@ -8693,7 +8696,7 @@ static const unsigned int sched_nr_migrate_break = 32;
  */
 #define SCHED_CAMBYSES_AUTHOR	"Masahito Suzuki"
 #define SCHED_CAMBYSES_PROGNAME	"Cambyses CFS Load Balancer modification"
-#define SCHED_CAMBYSES_VERSION	"0.6.0"
+#define SCHED_CAMBYSES_VERSION	"0.7.2"
 
 static int __init sched_cambyses_init(void)
 {
@@ -8720,26 +8723,67 @@ struct lb_concession {
 };
 
 /*
+ * Whether this balance operation concedes to the cheapest candidate.
+ *
+ * Only a balance pulling into an idle CPU does: handing it work is a win even
+ * when the task overshoots, as long as the overshoot still shrinks the
+ * imbalance (see lb_cost_fits()), so conceding on the first scan that admits
+ * nothing is worth it.  A busy destination gains nothing from an overshoot but
+ * can flip the imbalance and bounce the task back, so it keeps the upstream
+ * relaxation.
+ *
+ * Decided from env->idle, which is fixed for the whole operation, rather than
+ * idle_cpu(env->dst_cpu), which a wakeup can change between candidates and so
+ * split one scan across both rules.  detach_tasks() needs no matching test:
+ * the concession is only ever recorded when this returns true.
+ *
+ * Not after a redirect.  When the tasks cannot run on the idle CPU that asked
+ * for them, sched_balance_rq() retries towards another CPU of its group, but
+ * env->idle still describes the CPU that asked.  The new destination is
+ * normally busy, so an overshoot there is exactly what the idle-only rule
+ * exists to prevent.
+ */
+static inline bool lb_concede_cheapest(struct lb_env *env)
+{
+	return sched_feat(LB_CONCEDE_CHEAPEST) && env->idle != CPU_NOT_IDLE &&
+	       !(env->flags & LBF_DST_REDIRECTED);
+}
+
+/*
  * Does moving @p, costing @cost, fit the remaining imbalance budget?
  *
- * LB_STRICT_BUDGET compares directly and notes the smallest overshoot seen so
- * far.  The 4.9 tree has no shr_bound()/nr_balance_failed relaxation to drop
- * (that arrived later); what it does have is the big-task guard below, which
- * is the only thing that can keep an over-budget task from ever moving, since
- * this tree's active-balance escalation is for migrate_task only.  So the
- * concession is what guarantees progress here.
+ * With LB_CONCEDE_CHEAPEST the comparison is direct and the smallest overshoot
+ * seen so far is noted.  The 4.9 tree has no shr_bound()/nr_balance_failed
+ * relaxation to drop (that arrived later); what it does have is the big-task
+ * guard below, which is the only thing that can keep an over-budget task from
+ * ever moving, since this tree's active-balance escalation is for migrate_task
+ * only.  So the concession is what guarantees progress here.
  *
  * With the feature off this is a plain "cost <= imbalance" test and no
  * overshoot is remembered.
+ *
+ * An overshoot is noted only if moving it still shrinks the imbalance:
+ * moving @cost against an imbalance I leaves |I - cost|, which is smaller
+ * than I only while cost < 2 * I.  This also rules out a bounce.  The move
+ * leaves the reverse direction an imbalance of cost - I, and pulling the
+ * same task back would need cost < 2 * (cost - I), that is cost > 2 * I.
  */
 static bool lb_cost_fits(struct lb_env *env, struct lb_concession *concession,
 			 struct task_struct *p, unsigned long cost)
 {
-	if (!sched_feat(LB_STRICT_BUDGET))
+	if (!lb_concede_cheapest(env))
 		return cost <= env->imbalance;
 
 	if (cost <= env->imbalance)
 		return true;
+
+	/*
+	 * cost < 2 * imbalance, written so it cannot overflow.  imbalance is
+	 * positive here (detach_tasks() stops once it is not) and cost
+	 * exceeds it, so the subtraction cannot wrap.
+	 */
+	if (cost - env->imbalance >= env->imbalance)
+		return false;
 
 	if (!concession->p || cost < concession->cost) {
 		concession->p = p;
@@ -8819,7 +8863,7 @@ redo:
 		/*
 		 * Make sure that we don't migrate too much load.  The 4.9 tree halves
 		 * the cost before comparing; keep that, but go through
-		 * lb_cost_fits() so LB_STRICT_BUDGET can remember the cheapest
+		 * lb_cost_fits() so LB_CONCEDE_CHEAPEST can remember the cheapest
 		 * overshoot for the concession below.
 		 */
 		if (((cpu_rq(env->src_cpu)->nr_running > 2) ||
@@ -10466,6 +10510,7 @@ more_balance:
 			env.dst_rq	 = cpu_rq(env.new_dst_cpu);
 			env.dst_cpu	 = env.new_dst_cpu;
 			env.flags	&= ~LBF_DST_PINNED;
+			env.flags	|= LBF_DST_REDIRECTED;
 			env.loop	 = 0;
 			env.loop_break	 = sched_nr_migrate_break;
 

@@ -26,14 +26,14 @@ void wg_cookie_checker_init(struct cookie_checker *checker,
 }
 
 enum { COOKIE_KEY_LABEL_LEN = 8 };
-static const u8 mac1_key_label[COOKIE_KEY_LABEL_LEN] __nonstring = "mac1----";
-static const u8 cookie_key_label[COOKIE_KEY_LABEL_LEN] __nonstring = "cookie--";
+static const u8 mac1_key_label[COOKIE_KEY_LABEL_LEN] = "mac1----";
+static const u8 cookie_key_label[COOKIE_KEY_LABEL_LEN] = "cookie--";
 
 static void precompute_key(u8 key[NOISE_SYMMETRIC_KEY_LEN],
 			   const u8 pubkey[NOISE_PUBLIC_KEY_LEN],
 			   const u8 label[COOKIE_KEY_LABEL_LEN])
 {
-	struct blake2s_ctx blake;
+	struct blake2s_state blake;
 
 	blake2s_init(&blake, NOISE_SYMMETRIC_KEY_LEN);
 	blake2s_update(&blake, label, COOKIE_KEY_LABEL_LEN);
@@ -77,7 +77,7 @@ static void compute_mac1(u8 mac1[COOKIE_LEN], const void *message, size_t len,
 {
 	len = len - sizeof(struct message_macs) +
 	      offsetof(struct message_macs, mac1);
-	blake2s(key, NOISE_SYMMETRIC_KEY_LEN, message, len, mac1, COOKIE_LEN);
+	blake2s(mac1, message, key, COOKIE_LEN, len, NOISE_SYMMETRIC_KEY_LEN);
 }
 
 static void compute_mac2(u8 mac2[COOKIE_LEN], const void *message, size_t len,
@@ -85,13 +85,13 @@ static void compute_mac2(u8 mac2[COOKIE_LEN], const void *message, size_t len,
 {
 	len = len - sizeof(struct message_macs) +
 	      offsetof(struct message_macs, mac2);
-	blake2s(cookie, COOKIE_LEN, message, len, mac2, COOKIE_LEN);
+	blake2s(mac2, message, cookie, COOKIE_LEN, len, COOKIE_LEN);
 }
 
 static void make_cookie(u8 cookie[COOKIE_LEN], struct sk_buff *skb,
 			struct cookie_checker *checker)
 {
-	struct blake2s_ctx blake;
+	struct blake2s_state blake;
 
 	if (wg_birthdate_has_expired(checker->secret_birthdate,
 				     COOKIE_SECRET_MAX_AGE)) {

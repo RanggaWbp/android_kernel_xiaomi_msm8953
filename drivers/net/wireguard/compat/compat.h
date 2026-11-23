@@ -1199,4 +1199,23 @@ static inline void dst_cache_reset_now(struct dst_cache *dst_cache)
 #define from_timer(var, callback_timer, timer_fieldname) container_of((struct timer_list *)callback_timer, typeof(*var), timer_fieldname)
 #endif
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 6, 0) && !defined(skb_mark_not_on_list)
+#define skb_mark_not_on_list(skb) do { } while (0)
+#endif
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 6, 0) && !defined(skb_list_walk_safe)
+#define skb_list_walk_safe(list, skb, next) \
+	for (skb = (list), next = skb ? skb->next : NULL; skb; \
+	     skb = next, next = skb ? skb->next : NULL)
+#endif
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 3, 0) && !defined(skb_put_data)
+static inline void *skb_put_data(struct sk_buff *skb, const void *data, unsigned int len)
+{
+	void *tmp = skb_put(skb, len);
+	memcpy(tmp, data, len);
+	return tmp;
+}
+#endif
+
 #endif /* _WG_COMPAT_H */

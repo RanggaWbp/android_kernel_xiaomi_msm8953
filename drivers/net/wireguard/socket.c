@@ -49,9 +49,8 @@ static int send4(struct wg_device *wg, struct sk_buff *skb,
 		rt = dst_cache_get_ip4(cache, &fl.saddr);
 
 	if (!rt) {
-		security_sk_classify_flow(sock, flowi4_to_flowi(&fl));
-		if (unlikely(!inet_confirm_addr(sock_net(sock), NULL, 0,
-						fl.saddr, RT_SCOPE_HOST))) {
+		security_sk_classify_flow(sock, flowi4_to_flowi_common(&fl));
+		if (unlikely(fl.saddr && !__ip_dev_find(sock_net(sock), fl.saddr, false))) {
 			endpoint->src4.s_addr = 0;
 			endpoint->src_if4 = 0;
 			fl.saddr = 0;
@@ -129,15 +128,14 @@ static int send6(struct wg_device *wg, struct sk_buff *skb,
 		dst = dst_cache_get_ip6(cache, &fl.saddr);
 
 	if (!dst) {
-		security_sk_classify_flow(sock, flowi6_to_flowi(&fl));
+		security_sk_classify_flow(sock, flowi6_to_flowi_common(&fl));
 		if (unlikely(!ipv6_addr_any(&fl.saddr) &&
 			     !ipv6_chk_addr(sock_net(sock), &fl.saddr, NULL, 0))) {
 			endpoint->src6 = fl.saddr = in6addr_any;
 			if (cache)
 				dst_cache_reset(cache);
 		}
-		dst = ipv6_stub->ipv6_dst_lookup_flow(sock_net(sock), sock, &fl,
-						      NULL);
+		dst = ip6_dst_lookup_flow(sock_net(sock), sock, &fl, NULL);
 		if (IS_ERR(dst)) {
 			ret = PTR_ERR(dst);
 			net_dbg_ratelimited("%s: No route to %pISpfsc, error %d\n",
@@ -336,7 +334,7 @@ static void sock_free(struct sock *sock)
 	if (unlikely(!sock))
 		return;
 	sk_clear_memalloc(sock);
-	udp_tunnel_sock_release(sock->sk_socket);
+	udp_tunnel_sock_release(sock);
 }
 
 static void set_sock_opts(struct socket *sock)
@@ -390,14 +388,14 @@ retry:
 		goto out;
 	}
 	set_sock_opts(new4);
-	setup_udp_tunnel_sock(net, new4, &cfg);
+	setup_udp_tunnel_sock(net, new4->sk, &cfg);
 
 #if IS_ENABLED(CONFIG_IPV6)
 	if (ipv6_mod_enabled()) {
 		port6.local_udp_port = inet_sk(new4->sk)->inet_sport;
 		ret = udp_sock_create(net, &port6, &new6);
 		if (ret < 0) {
-			udp_tunnel_sock_release(new4);
+			udp_tunnel_sock_release(new4->sk);
 			if (ret == -EADDRINUSE && !port && retries++ < 100)
 				goto retry;
 			pr_err("%s: Could not create IPv6 socket\n",
@@ -405,7 +403,7 @@ retry:
 			goto out;
 		}
 		set_sock_opts(new6);
-		setup_udp_tunnel_sock(net, new6, &cfg);
+		setup_udp_tunnel_sock(net, new6->sk, &cfg);
 	}
 #endif
 

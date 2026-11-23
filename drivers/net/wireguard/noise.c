@@ -15,7 +15,7 @@
 #include <linux/bitmap.h>
 #include <linux/scatterlist.h>
 #include <linux/highmem.h>
-#include <crypto/algapi.h>
+#include <crypto/utils.h>
 
 /* This implements Noise_IKpsk2:
  *
@@ -25,18 +25,18 @@
  * <- e, ee, se, psk, {}
  */
 
-static const u8 handshake_name[37] = "Noise_IKpsk2_25519_ChaChaPoly_BLAKE2s";
-static const u8 identifier_name[34] = "WireGuard v1 zx2c4 Jason@zx2c4.com";
+static const u8 handshake_name[37] __nonstring = "Noise_IKpsk2_25519_ChaChaPoly_BLAKE2s";
+static const u8 identifier_name[34] __nonstring = "WireGuard v1 zx2c4 Jason@zx2c4.com";
 static u8 handshake_init_hash[NOISE_HASH_LEN] __ro_after_init;
 static u8 handshake_init_chaining_key[NOISE_HASH_LEN] __ro_after_init;
 static atomic64_t keypair_counter = ATOMIC64_INIT(0);
 
 void __init wg_noise_init(void)
 {
-	struct blake2s_state blake;
+	struct blake2s_ctx blake;
 
-	blake2s(handshake_init_chaining_key, handshake_name, NULL,
-		NOISE_HASH_LEN, sizeof(handshake_name), 0);
+	blake2s(NULL, 0, handshake_name, sizeof(handshake_name),
+		handshake_init_chaining_key, NOISE_HASH_LEN);
 	blake2s_init(&blake, NOISE_HASH_LEN);
 	blake2s_update(&blake, handshake_init_chaining_key, NOISE_HASH_LEN);
 	blake2s_update(&blake, identifier_name, sizeof(identifier_name));
@@ -97,7 +97,7 @@ void wg_noise_handshake_clear(struct noise_handshake *handshake)
 
 static struct noise_keypair *keypair_create(struct wg_peer *peer)
 {
-	struct noise_keypair *keypair = kzalloc(sizeof(*keypair), GFP_KERNEL);
+	struct noise_keypair *keypair = kzalloc_obj(*keypair);
 
 	if (unlikely(!keypair))
 		return NULL;
@@ -111,7 +111,9 @@ static struct noise_keypair *keypair_create(struct wg_peer *peer)
 
 static void keypair_free_rcu(struct rcu_head *rcu)
 {
-	kfree_sensitive(container_of(rcu, struct noise_keypair, rcu));
+	struct noise_keypair *keypair = container_of(rcu, struct noise_keypair, rcu);
+	memzero_explicit(keypair, sizeof(*keypair));
+	kfree(keypair);
 }
 
 static void keypair_free_kref(struct kref *kref)
@@ -302,6 +304,41 @@ void wg_noise_set_static_identity_private_key(
 		static_identity->static_public, private_key);
 }
 
+static void hmac(u8 *out, const u8 *in, const u8 *key, const size_t inlen, const size_t keylen)
+{
+	struct blake2s_ctx blake;
+	u8 x_key[BLAKE2S_BLOCK_SIZE] __aligned(__alignof__(u32)) = { 0 };
+	u8 i_hash[BLAKE2S_HASH_SIZE] __aligned(__alignof__(u32));
+	int i;
+
+	if (keylen > BLAKE2S_BLOCK_SIZE) {
+		blake2s_init(&blake, BLAKE2S_HASH_SIZE);
+		blake2s_update(&blake, key, keylen);
+		blake2s_final(&blake, x_key);
+	} else
+		memcpy(x_key, key, keylen);
+
+	for (i = 0; i < BLAKE2S_BLOCK_SIZE; ++i)
+		x_key[i] ^= 0x36;
+
+	blake2s_init(&blake, BLAKE2S_HASH_SIZE);
+	blake2s_update(&blake, x_key, BLAKE2S_BLOCK_SIZE);
+	blake2s_update(&blake, in, inlen);
+	blake2s_final(&blake, i_hash);
+
+	for (i = 0; i < BLAKE2S_BLOCK_SIZE; ++i)
+		x_key[i] ^= 0x5c ^ 0x36;
+
+	blake2s_init(&blake, BLAKE2S_HASH_SIZE);
+	blake2s_update(&blake, x_key, BLAKE2S_BLOCK_SIZE);
+	blake2s_update(&blake, i_hash, BLAKE2S_HASH_SIZE);
+	blake2s_final(&blake, i_hash);
+
+	memcpy(out, i_hash, BLAKE2S_HASH_SIZE);
+	memzero_explicit(x_key, BLAKE2S_BLOCK_SIZE);
+	memzero_explicit(i_hash, BLAKE2S_HASH_SIZE);
+}
+
 /* This is Hugo Krawczyk's HKDF:
  *  - https://eprint.iacr.org/2010/264.pdf
  *  - https://tools.ietf.org/html/rfc5869
@@ -322,16 +359,14 @@ static void kdf(u8 *first_dst, u8 *second_dst, u8 *third_dst, const u8 *data,
 		 ((third_len || third_dst) && (!second_len || !second_dst))));
 
 	/* Extract entropy from data into secret */
-	blake2s_hmac(secret, data, chaining_key, BLAKE2S_HASH_SIZE, data_len,
-		     NOISE_HASH_LEN);
+	hmac(secret, data, chaining_key, data_len, NOISE_HASH_LEN);
 
 	if (!first_dst || !first_len)
 		goto out;
 
 	/* Expand first key: key = secret, data = 0x1 */
 	output[0] = 1;
-	blake2s_hmac(output, output, secret, BLAKE2S_HASH_SIZE, 1,
-		     BLAKE2S_HASH_SIZE);
+	hmac(output, output, secret, 1, BLAKE2S_HASH_SIZE);
 	memcpy(first_dst, output, first_len);
 
 	if (!second_dst || !second_len)
@@ -339,8 +374,7 @@ static void kdf(u8 *first_dst, u8 *second_dst, u8 *third_dst, const u8 *data,
 
 	/* Expand second key: key = secret, data = first-key || 0x2 */
 	output[BLAKE2S_HASH_SIZE] = 2;
-	blake2s_hmac(output, output, secret, BLAKE2S_HASH_SIZE,
-		     BLAKE2S_HASH_SIZE + 1, BLAKE2S_HASH_SIZE);
+	hmac(output, output, secret, BLAKE2S_HASH_SIZE + 1, BLAKE2S_HASH_SIZE);
 	memcpy(second_dst, output, second_len);
 
 	if (!third_dst || !third_len)
@@ -348,8 +382,7 @@ static void kdf(u8 *first_dst, u8 *second_dst, u8 *third_dst, const u8 *data,
 
 	/* Expand third key: key = secret, data = second-key || 0x3 */
 	output[BLAKE2S_HASH_SIZE] = 3;
-	blake2s_hmac(output, output, secret, BLAKE2S_HASH_SIZE,
-		     BLAKE2S_HASH_SIZE + 1, BLAKE2S_HASH_SIZE);
+	hmac(output, output, secret, BLAKE2S_HASH_SIZE + 1, BLAKE2S_HASH_SIZE);
 	memcpy(third_dst, output, third_len);
 
 out:
@@ -400,7 +433,7 @@ static bool __must_check mix_precomputed_dh(u8 chaining_key[NOISE_HASH_LEN],
 
 static void mix_hash(u8 hash[NOISE_HASH_LEN], const u8 *src, size_t src_len)
 {
-	struct blake2s_state blake;
+	struct blake2s_ctx blake;
 
 	blake2s_init(&blake, NOISE_HASH_LEN);
 	blake2s_update(&blake, hash, NOISE_HASH_LEN);
@@ -705,7 +738,6 @@ wg_noise_handshake_consume_response(struct message_handshake_response *src,
 	u8 chaining_key[NOISE_HASH_LEN];
 	u8 e[NOISE_PUBLIC_KEY_LEN];
 	u8 ephemeral_private[NOISE_PUBLIC_KEY_LEN];
-	u8 static_private[NOISE_PUBLIC_KEY_LEN];
 	u8 preshared_key[NOISE_SYMMETRIC_KEY_LEN];
 
 	down_read(&wg->static_identity.lock);
@@ -753,10 +785,11 @@ wg_noise_handshake_consume_response(struct message_handshake_response *src,
 
 	/* Success! Copy everything to peer */
 	down_write(&handshake->lock);
-	/* It's important to check that the state is still the same, while we
-	 * have an exclusive lock.
+	/* Check that the state is the same and that this is still the
+	 * initiation we started with, while we have an exclusive lock.
 	 */
-	if (handshake->state != state) {
+	if (handshake->state != state ||
+	    crypto_memneq(handshake->ephemeral_private, ephemeral_private, NOISE_PUBLIC_KEY_LEN)) {
 		up_write(&handshake->lock);
 		goto fail;
 	}
@@ -776,7 +809,6 @@ out:
 	memzero_explicit(hash, NOISE_HASH_LEN);
 	memzero_explicit(chaining_key, NOISE_HASH_LEN);
 	memzero_explicit(ephemeral_private, NOISE_PUBLIC_KEY_LEN);
-	memzero_explicit(static_private, NOISE_PUBLIC_KEY_LEN);
 	memzero_explicit(preshared_key, NOISE_SYMMETRIC_KEY_LEN);
 	up_read(&wg->static_identity.lock);
 	return ret_peer;

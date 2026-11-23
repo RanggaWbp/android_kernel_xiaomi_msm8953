@@ -516,10 +516,65 @@ jobs:
             echo ":: warning::CONFIG_KSU is not set yet (BakaSU submodule may still be merging) - not failing the build"
           fi
           if grep -q '^CONFIG_KSU_SUSFS=y' out/.config; then
-            echo ":: notice::CONFIG_KSU_SUSFS=y present"
+            echo "::notice::CONFIG_KSU_SUSFS=y present"
           else
-            echo ":: warning::CONFIG_KSU_SUSFS is not set yet - not failing the build"
+            echo "::warning::CONFIG_KSU_SUSFS is not set yet - not failing the build"
           fi
+
+      - name: WireGuard gate (hard)
+        run: |
+          set -eo pipefail
+          # Hard gate: WireGuard must be built-in from the compat integration, not a module.
+          if ! grep -q '^CONFIG_WIREGUARD=y' out/.config; then
+            echo "::error::CONFIG_WIREGUARD is not =y in the settled config - WireGuard is not built"
+            exit 1
+          fi
+          echo "::notice::CONFIG_WIREGUARD=y present"
+          # Driver object must exist (not skipped by a Kconfig dependency miss).
+          for obj in out/drivers/net/wireguard/main.o \
+                     out/drivers/net/wireguard/noise.o \
+                     out/drivers/net/wireguard/receive.o \
+                     out/drivers/net/wireguard/send.o \
+                     out/drivers/net/wireguard/socket.o \
+                     out/drivers/net/wireguard/timers.o \
+                     out/drivers/net/wireguard/device.o \
+                     out/drivers/net/wireguard/peer.o \
+                     out/drivers/net/wireguard/queueing.o \
+                     out/drivers/net/wireguard/peerlookup.o \
+                     out/drivers/net/wireguard/allowedips.o \
+                     out/drivers/net/wireguard/ratelimiter.o \
+                     out/drivers/net/wireguard/cookie.o \
+                     out/drivers/net/wireguard/netlink.o; do
+            if [ ! -f "$obj" ]; then
+              echo "::error::missing WireGuard build object: $obj"
+              exit 1
+            fi
+          done
+          # zinc crypto objects (arm64 path) must be built.
+          if [ ! -f out/drivers/net/wireguard/crypto/zinc/chacha20/chacha20.o ] || \
+             [ ! -f out/drivers/net/wireguard/crypto/zinc/poly1305/poly1305.o ] || \
+             [ ! -f out/drivers/net/wireguard/crypto/zinc/chacha20poly1305.o ] || \
+             [ ! -f out/drivers/net/wireguard/crypto/zinc/blake2s/blake2s.o ] || \
+             [ ! -f out/drivers/net/wireguard/crypto/zinc/curve25519/curve25519.o ]; then
+            echo "::error::missing WireGuard zinc crypto object (arm64 path)"
+            exit 1
+          fi
+          # Built-in means no .ko for the wireguard driver.
+          if ls out/drivers/net/wireguard/*.ko >/dev/null 2>&1; then
+            echo "::error::WireGuard built as modules (.ko present) - must be built-in"
+            exit 1
+          fi
+          # Symbol present in the final image.
+          if [ "${{ inputs.thinlto }}" = "true" ]; then
+            NM_TOOL="$PWD/tc/clang/bin/llvm-nm"
+          else
+            NM_TOOL=nm
+          fi
+          if ! "$NM_TOOL" out/vmlinux | grep -qE ' wireguard_(init|exit)'; then
+            echo "::error::wireguard_init/exit not in vmlinux - WireGuard did not link in"
+            exit 1
+          fi
+          echo "::notice::WireGuard 1.0.20220627 built-in (driver + zinc crypto linked in vmlinux)"
 
       - name: Package AnyKernel3 zip
         id: pkg

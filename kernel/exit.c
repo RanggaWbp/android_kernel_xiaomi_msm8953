@@ -826,6 +826,7 @@ void __noreturn do_exit(long code)
 	}
 
 	exit_signals(tsk);  /* sets PF_EXITING */
+	cgroup_leave_frozen(true);
 
 	sched_exit(tsk);
 	schedtune_exit_task(tsk);

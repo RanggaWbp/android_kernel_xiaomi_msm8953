@@ -62,6 +62,12 @@ enum {
 	 * specified at mount time and thus is implemented here.
 	 */
 	CGRP_CPUSET_CLONE_CHILDREN,
+
+	/* Control group has to be frozen. */
+	CGRP_FREEZE,
+
+	/* Cgroup is frozen. */
+	CGRP_FROZEN,
 };
 
 /* cgroup_root->flags */
@@ -309,6 +315,26 @@ struct cgroup {
 
 	/* used to store eBPF programs */
 	struct cgroup_bpf bpf;
+
+	/*
+	 * If this cgroup is frozen or not, and how many frozen tasks it has.
+	 */
+	struct {
+		/*
+		 * Effective freeze counter.  When a cgroup is frozen, its
+		 * descendants are not frozen.  This counter is used to keep
+		 * track of the effective state.
+		 */
+		int e_freeze;
+		int freeze;
+		int nr_frozen_tasks;
+		int nr_frozen_descendants;
+	} freezer;
+
+	/*
+	 * Number of all descendants, including self, that are alive.
+	 */
+	int nr_descendants;
 
 	/* ids of the ancestors at each level including self */
 	int ancestor_ids[];

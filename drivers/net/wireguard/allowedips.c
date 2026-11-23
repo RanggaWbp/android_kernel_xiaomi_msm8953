@@ -5,6 +5,7 @@
 
 #include "allowedips.h"
 #include "peer.h"
+#include <asm/unaligned.h>
 
 enum { MAX_ALLOWEDIPS_DEPTH = 129 };
 

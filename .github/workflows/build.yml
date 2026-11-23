@@ -570,8 +570,8 @@ jobs:
           else
             NM_TOOL=nm
           fi
-          if ! "$NM_TOOL" out/vmlinux | grep -qE ' wireguard_(init|exit)'; then
-            echo "::error::wireguard_init/exit not in vmlinux - WireGuard did not link in"
+          if ! "$NM_TOOL" out/vmlinux | grep -qE ' wg_mod_(init|exit)'; then
+            echo "::error::wg_mod_init/exit not in vmlinux - WireGuard did not link in"
             exit 1
           fi
           echo "::notice::WireGuard 1.0.20220627 built-in (driver + zinc crypto linked in vmlinux)"

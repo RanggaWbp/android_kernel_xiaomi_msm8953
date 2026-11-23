@@ -50,8 +50,7 @@ static int send4(struct wg_device *wg, struct sk_buff *skb,
 
 	if (!rt) {
 		security_sk_classify_flow(sock, flowi4_to_flowi(&fl));
-		if (unlikely(!inet_confirm_addr(sock_net(sock), NULL, 0,
-						fl.saddr, RT_SCOPE_HOST))) {
+		if (unlikely(fl.saddr && !__ip_dev_find(sock_net(sock), fl.saddr, false))) {
 			endpoint->src4.s_addr = 0;
 			endpoint->src_if4 = 0;
 			fl.saddr = 0;
@@ -136,8 +135,7 @@ static int send6(struct wg_device *wg, struct sk_buff *skb,
 			if (cache)
 				dst_cache_reset(cache);
 		}
-		dst = ipv6_stub->ipv6_dst_lookup_flow(sock_net(sock), sock, &fl,
-						      NULL);
+		dst = ip6_dst_lookup_flow(sock_net(sock), sock, &fl, NULL);
 		if (IS_ERR(dst)) {
 			ret = PTR_ERR(dst);
 			net_dbg_ratelimited("%s: No route to %pISpfsc, error %d\n",

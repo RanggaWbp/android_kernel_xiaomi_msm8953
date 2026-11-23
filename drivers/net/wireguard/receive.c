@@ -11,7 +11,6 @@
 #include "cookie.h"
 #include "socket.h"
 
-#include <linux/simd.h>
 #include <linux/ip.h>
 #include <linux/ipv6.h>
 #include <linux/udp.h>
@@ -20,15 +19,9 @@
 /* Must be called with bh disabled. */
 static void update_rx_stats(struct wg_peer *peer, size_t len)
 {
-	struct pcpu_sw_netstats *tstats =
-		get_cpu_ptr(peer->device->dev->tstats);
-
-	u64_stats_update_begin(&tstats->syncp);
-	++tstats->rx_packets;
-	tstats->rx_bytes += len;
+	peer->device->dev->stats.rx_packets++;
+	peer->device->dev->stats.rx_bytes += len;
 	peer->rx_bytes += len;
-	u64_stats_update_end(&tstats->syncp);
-	put_cpu_ptr(tstats);
 }
 
 #define SKB_TYPE_LE32(skb) (((struct message_header *)(skb)->data)->type)
@@ -247,11 +240,11 @@ static void keep_key_fresh(struct wg_peer *peer)
 	}
 }
 
-static bool decrypt_packet(struct sk_buff *skb, struct noise_keypair *keypair,
-			   simd_context_t *simd_context)
+static bool decrypt_packet(struct sk_buff *skb, struct noise_keypair *keypair)
 {
 	struct scatterlist sg[MAX_SKB_FRAGS + 8];
 	struct sk_buff *trailer;
+	simd_context_t simd_context;
 	unsigned int offset;
 	int num_frags;
 
@@ -260,7 +253,7 @@ static bool decrypt_packet(struct sk_buff *skb, struct noise_keypair *keypair,
 
 	if (unlikely(!READ_ONCE(keypair->receiving.is_valid) ||
 		  wg_birthdate_has_expired(keypair->receiving.birthdate, REJECT_AFTER_TIME) ||
-		  keypair->receiving_counter.counter >= REJECT_AFTER_MESSAGES)) {
+		  READ_ONCE(keypair->receiving_counter.counter) >= REJECT_AFTER_MESSAGES)) {
 		WRITE_ONCE(keypair->receiving.is_valid, false);
 		return false;
 	}
@@ -272,7 +265,7 @@ static bool decrypt_packet(struct sk_buff *skb, struct noise_keypair *keypair,
 	 * call skb_cow_data, so that there's no chance that data is removed
 	 * from the skb, so that later we can extract the original endpoint.
 	 */
-	offset = skb->data - skb_network_header(skb);
+	offset = -skb_network_offset(skb);
 	skb_push(skb, offset);
 	num_frags = skb_cow_data(skb, 0, &trailer);
 	offset += sizeof(struct message_data);
@@ -285,9 +278,9 @@ static bool decrypt_packet(struct sk_buff *skb, struct noise_keypair *keypair,
 		return false;
 
 	if (!chacha20poly1305_decrypt_sg_inplace(sg, skb->len, NULL, 0,
-						 PACKET_CB(skb)->nonce,
-						 keypair->receiving.key,
-						 simd_context))
+					         PACKET_CB(skb)->nonce,
+					         keypair->receiving.key,
+					         &simd_context))
 		return false;
 
 	/* Another ugly situation of pushing and pulling the header so as to
@@ -328,7 +321,7 @@ static bool counter_validate(struct noise_replay_counter *counter, u64 their_cou
 		for (i = 1; i <= top; ++i)
 			counter->backtrack[(i + index_current) &
 				((COUNTER_BITS_TOTAL / BITS_PER_LONG) - 1)] = 0;
-		counter->counter = their_counter;
+		WRITE_ONCE(counter->counter, their_counter);
 	}
 
 	index &= (COUNTER_BITS_TOTAL / BITS_PER_LONG) - 1;
@@ -390,10 +383,10 @@ static void wg_packet_consume_data_done(struct wg_peer *peer,
 	 * again in software.
 	 */
 	skb->ip_summed = CHECKSUM_UNNECESSARY;
-#ifndef COMPAT_CANNOT_USE_CSUM_LEVEL
 	skb->csum_level = ~0; /* All levels */
-#endif
-	skb->protocol = ip_tunnel_parse_protocol(skb);
+	skb->protocol = ip_hdr(skb)->version == 6 ? htons(ETH_P_IPV6) :
+						       htons(ETH_P_IP);
+
 	if (skb->protocol == htons(ETH_P_IP)) {
 		len = ntohs(ip_hdr(skb)->tot_len);
 		if (unlikely(len < sizeof(struct iphdr)))
@@ -428,20 +421,20 @@ dishonest_packet_peer:
 	net_dbg_skb_ratelimited("%s: Packet has unallowed src IP (%pISc) from peer %llu (%pISpfsc)\n",
 				dev->name, skb, peer->internal_id,
 				&peer->endpoint.addr);
-	++dev->stats.rx_errors;
-	++dev->stats.rx_frame_errors;
+	dev->stats.rx_errors++;
+	dev->stats.rx_frame_errors++;
 	goto packet_processed;
 dishonest_packet_type:
 	net_dbg_ratelimited("%s: Packet is neither ipv4 nor ipv6 from peer %llu (%pISpfsc)\n",
 			    dev->name, peer->internal_id, &peer->endpoint.addr);
-	++dev->stats.rx_errors;
-	++dev->stats.rx_frame_errors;
+	dev->stats.rx_errors++;
+	dev->stats.rx_frame_errors++;
 	goto packet_processed;
 dishonest_packet_size:
 	net_dbg_ratelimited("%s: Packet has incorrect size from peer %llu (%pISpfsc)\n",
 			    dev->name, peer->internal_id, &peer->endpoint.addr);
-	++dev->stats.rx_errors;
-	++dev->stats.rx_length_errors;
+	dev->stats.rx_errors++;
+	dev->stats.rx_length_errors++;
 	goto packet_processed;
 packet_processed:
 	dev_kfree_skb(skb);
@@ -475,7 +468,7 @@ int wg_packet_rx_poll(struct napi_struct *napi, int budget)
 			net_dbg_ratelimited("%s: Packet has invalid nonce %llu (max %llu)\n",
 					    peer->device->dev->name,
 					    PACKET_CB(skb)->nonce,
-					    keypair->receiving_counter.counter);
+					    READ_ONCE(keypair->receiving_counter.counter));
 			goto next;
 		}
 
@@ -506,20 +499,16 @@ void wg_packet_decrypt_worker(struct work_struct *work)
 {
 	struct crypt_queue *queue = container_of(work, struct multicore_worker,
 						 work)->ptr;
-	simd_context_t simd_context;
 	struct sk_buff *skb;
 
-	simd_get(&simd_context);
 	while ((skb = ptr_ring_consume_bh(&queue->ring)) != NULL) {
 		enum packet_state state =
-			likely(decrypt_packet(skb, PACKET_CB(skb)->keypair,
-					      &simd_context)) ?
+			likely(decrypt_packet(skb, PACKET_CB(skb)->keypair)) ?
 				PACKET_STATE_CRYPTED : PACKET_STATE_DEAD;
 		wg_queue_enqueue_per_peer_rx(skb, state);
-		simd_relax(&simd_context);
+		if (need_resched())
+			cond_resched();
 	}
-
-	simd_put(&simd_context);
 }
 
 static void wg_packet_consume_data(struct wg_device *wg, struct sk_buff *skb)
@@ -540,7 +529,7 @@ static void wg_packet_consume_data(struct wg_device *wg, struct sk_buff *skb)
 		goto err;
 
 	ret = wg_queue_enqueue_per_device_and_peer(&wg->decrypt_queue, &peer->rx_queue, skb,
-						   wg->packet_crypt_wq, &wg->decrypt_queue.last_cpu);
+						   wg->packet_crypt_wq);
 	if (unlikely(ret == -EPIPE))
 		wg_queue_enqueue_per_peer_rx(skb, PACKET_STATE_DEAD);
 	if (likely(!ret || ret == -EPIPE)) {

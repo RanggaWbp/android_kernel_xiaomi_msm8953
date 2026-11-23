@@ -10,11 +10,11 @@
 #include "ratelimiter.h"
 #include "timers.h"
 
-#include <zinc/blake2s.h>
-#include <zinc/chacha20poly1305.h>
+#include <crypto/blake2s.h>
+#include <crypto/chacha20poly1305.h>
+#include <crypto/utils.h>
 
 #include <net/ipv6.h>
-#include <crypto/algapi.h>
 
 void wg_cookie_checker_init(struct cookie_checker *checker,
 			    struct wg_device *wg)
@@ -91,7 +91,7 @@ static void compute_mac2(u8 mac2[COOKIE_LEN], const void *message, size_t len,
 static void make_cookie(u8 cookie[COOKIE_LEN], struct sk_buff *skb,
 			struct cookie_checker *checker)
 {
-	struct blake2s_state state;
+	struct blake2s_state blake;
 
 	if (wg_birthdate_has_expired(checker->secret_birthdate,
 				     COOKIE_SECRET_MAX_AGE)) {
@@ -103,15 +103,15 @@ static void make_cookie(u8 cookie[COOKIE_LEN], struct sk_buff *skb,
 
 	down_read(&checker->secret_lock);
 
-	blake2s_init_key(&state, COOKIE_LEN, checker->secret, NOISE_HASH_LEN);
+	blake2s_init_key(&blake, COOKIE_LEN, checker->secret, NOISE_HASH_LEN);
 	if (skb->protocol == htons(ETH_P_IP))
-		blake2s_update(&state, (u8 *)&ip_hdr(skb)->saddr,
+		blake2s_update(&blake, (u8 *)&ip_hdr(skb)->saddr,
 			       sizeof(struct in_addr));
 	else if (skb->protocol == htons(ETH_P_IPV6))
-		blake2s_update(&state, (u8 *)&ipv6_hdr(skb)->saddr,
+		blake2s_update(&blake, (u8 *)&ipv6_hdr(skb)->saddr,
 			       sizeof(struct in6_addr));
-	blake2s_update(&state, (u8 *)&udp_hdr(skb)->source, sizeof(__be16));
-	blake2s_final(&state, cookie);
+	blake2s_update(&blake, (u8 *)&udp_hdr(skb)->source, sizeof(__be16));
+	blake2s_final(&blake, cookie);
 
 	up_read(&checker->secret_lock);
 }

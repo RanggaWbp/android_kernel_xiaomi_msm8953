@@ -41,12 +41,12 @@ static inline void mod_peer_timer(struct wg_peer *peer,
 static void wg_expired_retransmit_handshake(struct timer_list *timer)
 {
 	struct wg_peer *peer = from_timer(peer, timer,
-					  timer_retransmit_handshake);
+						  timer_retransmit_handshake);
 
 	if (peer->timer_handshake_attempts > MAX_TIMER_HANDSHAKES) {
 		pr_debug("%s: Handshake for peer %llu (%pISpfsc) did not complete after %d attempts, giving up\n",
 			 peer->device->dev->name, peer->internal_id,
-			 &peer->endpoint.addr, MAX_TIMER_HANDSHAKES + 2);
+			 &peer->endpoint.addr, (int)MAX_TIMER_HANDSHAKES + 2);
 
 		del_timer(&peer->timer_send_keepalive);
 		/* We drop all packets without a keypair and don't try again,
@@ -64,7 +64,7 @@ static void wg_expired_retransmit_handshake(struct timer_list *timer)
 		++peer->timer_handshake_attempts;
 		pr_debug("%s: Handshake for peer %llu (%pISpfsc) did not complete after %d seconds, retrying (try %d)\n",
 			 peer->device->dev->name, peer->internal_id,
-			 &peer->endpoint.addr, REKEY_TIMEOUT,
+			 &peer->endpoint.addr, (int)REKEY_TIMEOUT,
 			 peer->timer_handshake_attempts + 1);
 
 		/* We clear the endpoint address src address, in case this is
@@ -78,7 +78,8 @@ static void wg_expired_retransmit_handshake(struct timer_list *timer)
 
 static void wg_expired_send_keepalive(struct timer_list *timer)
 {
-	struct wg_peer *peer = from_timer(peer, timer, timer_send_keepalive);
+	struct wg_peer *peer = from_timer(peer, timer,
+						  timer_send_keepalive);
 
 	wg_packet_send_keepalive(peer);
 	if (peer->timer_need_another_keepalive) {
@@ -90,11 +91,12 @@ static void wg_expired_send_keepalive(struct timer_list *timer)
 
 static void wg_expired_new_handshake(struct timer_list *timer)
 {
-	struct wg_peer *peer = from_timer(peer, timer, timer_new_handshake);
+	struct wg_peer *peer = from_timer(peer, timer,
+						  timer_new_handshake);
 
 	pr_debug("%s: Retrying handshake with peer %llu (%pISpfsc) because we stopped hearing back after %d seconds\n",
 		 peer->device->dev->name, peer->internal_id,
-		 &peer->endpoint.addr, KEEPALIVE_TIMEOUT + REKEY_TIMEOUT);
+		 &peer->endpoint.addr, (int)(KEEPALIVE_TIMEOUT + REKEY_TIMEOUT));
 	/* We clear the endpoint address src address, in case this is the cause
 	 * of trouble.
 	 */
@@ -104,7 +106,8 @@ static void wg_expired_new_handshake(struct timer_list *timer)
 
 static void wg_expired_zero_key_material(struct timer_list *timer)
 {
-	struct wg_peer *peer = from_timer(peer, timer, timer_zero_key_material);
+	struct wg_peer *peer = from_timer(peer, timer,
+						  timer_zero_key_material);
 
 	rcu_read_lock_bh();
 	if (!READ_ONCE(peer->is_dead)) {
@@ -126,7 +129,7 @@ static void wg_queued_expired_zero_key_material(struct work_struct *work)
 
 	pr_debug("%s: Zeroing out all keys for peer %llu (%pISpfsc), since we haven't received a new one in %d seconds\n",
 		 peer->device->dev->name, peer->internal_id,
-		 &peer->endpoint.addr, REJECT_AFTER_TIME * 3);
+		 &peer->endpoint.addr, (int)REJECT_AFTER_TIME * 3);
 	wg_noise_handshake_clear(&peer->handshake);
 	wg_noise_keypairs_clear(&peer->keypairs);
 	wg_peer_put(peer);
@@ -135,9 +138,9 @@ static void wg_queued_expired_zero_key_material(struct work_struct *work)
 static void wg_expired_send_persistent_keepalive(struct timer_list *timer)
 {
 	struct wg_peer *peer = from_timer(peer, timer,
-					  timer_persistent_keepalive);
+						  timer_persistent_keepalive);
 
-	if (likely(peer->persistent_keepalive_interval))
+	if (likely(READ_ONCE(peer->persistent_keepalive_interval)))
 		wg_packet_send_keepalive(peer);
 }
 
@@ -211,9 +214,10 @@ void wg_timers_session_derived(struct wg_peer *peer)
  */
 void wg_timers_any_authenticated_packet_traversal(struct wg_peer *peer)
 {
-	if (peer->persistent_keepalive_interval)
-		mod_peer_timer(peer, &peer->timer_persistent_keepalive,
-			jiffies + peer->persistent_keepalive_interval * HZ);
+	u16 interval = READ_ONCE(peer->persistent_keepalive_interval);
+
+	if (interval)
+		mod_peer_timer(peer, &peer->timer_persistent_keepalive, jiffies + interval * HZ);
 }
 
 void wg_timers_init(struct wg_peer *peer)

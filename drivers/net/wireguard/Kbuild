@@ -5,11 +5,15 @@
 ccflags-y := -D'pr_fmt(fmt)=KBUILD_MODNAME ": " fmt'
 ccflags-y += -Wframe-larger-than=2048
 ccflags-$(CONFIG_WIREGUARD_DEBUG) += -DDEBUG -g
-ccflags-y += -D'WIREGUARD_VERSION="1.0.20220627"'
 
 wireguard-y := main.o noise.o device.o peer.o timers.o queueing.o send.o receive.o socket.o peerlookup.o allowedips.o ratelimiter.o cookie.o netlink.o
 
 include $(src)/crypto/Kbuild.include
 include $(src)/compat/Kbuild.include
+
+ifeq ($(wildcard $(srctree)/include/crypto/chacha20poly1305.h),)
+ccflags-y += -I$(kbuild-dir)/crypto/include
+endif
+
 
 obj-$(if $(KBUILD_EXTMOD),m,$(CONFIG_WIREGUARD)) := wireguard.o

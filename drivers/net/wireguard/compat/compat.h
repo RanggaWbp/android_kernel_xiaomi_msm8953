@@ -540,9 +540,6 @@ static inline void *__compat_kvcalloc(size_t n, size_t size, gfp_t flags)
 #define priv_destructor destructor
 #endif
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 13, 0)
-#define wg_newlink(a,b,c,d,e) wg_newlink(a,b,c,d)
-#endif
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 12, 0)
 #include <net/netlink.h>
@@ -1197,6 +1194,16 @@ static inline void dst_cache_reset_now(struct dst_cache *dst_cache)
 #define timer_setup(a, b, c) setup_timer(a, ((void (*)(unsigned long))b), ((unsigned long)a))
 #undef from_timer
 #define from_timer(var, callback_timer, timer_fieldname) container_of((struct timer_list *)callback_timer, typeof(*var), timer_fieldname)
+#endif
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 6, 0) && !defined(skb_mark_not_on_list)
+#define skb_mark_not_on_list(skb) do { } while (0)
+#endif
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 6, 0) && !defined(skb_list_walk_safe)
+#define skb_list_walk_safe(list, skb, next) \
+	for (skb = (list), next = skb ? skb->next : NULL; skb; \
+	     skb = next, next = skb ? skb->next : NULL)
 #endif
 
 #endif /* _WG_COMPAT_H */

@@ -1209,13 +1209,4 @@ static inline void dst_cache_reset_now(struct dst_cache *dst_cache)
 	     skb = next, next = skb ? skb->next : NULL)
 #endif
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 3, 0) && !defined(skb_put_data)
-static inline void *skb_put_data(struct sk_buff *skb, const void *data, unsigned int len)
-{
-	void *tmp = skb_put(skb, len);
-	memcpy(tmp, data, len);
-	return tmp;
-}
-#endif
-
 #endif /* _WG_COMPAT_H */

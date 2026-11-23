@@ -540,9 +540,6 @@ static inline void *__compat_kvcalloc(size_t n, size_t size, gfp_t flags)
 #define priv_destructor destructor
 #endif
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 13, 0)
-#define wg_newlink(a,b,c,d,e) wg_newlink(a,b,c,d)
-#endif
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 12, 0)
 #include <net/netlink.h>

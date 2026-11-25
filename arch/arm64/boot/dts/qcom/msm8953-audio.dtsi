@@ -493,13 +493,23 @@
 		qcom,cdc-vdd-mic-bias-voltage = <3125000 3125000>;
 		qcom,cdc-vdd-mic-bias-current = <5000>;
 
+		cdc-vdda18-l10-supply = <&pm8953_l5>;
+		qcom,cdc-vdda18-l10-voltage = <1800000 1800000>;
+		qcom,cdc-vdda18-l10-current = <30000>;
+
+		cdc-vdd-l1-supply = <&pm8953_l1>;
+		qcom,cdc-vdd-l1-voltage = <1000000 1000000>;
+		qcom,cdc-vdd-l1-current = <30000>;
+
 		qcom,cdc-mclk-clk-rate = <9600000>;
 
 		qcom,cdc-static-supplies = "cdc-vdd-io",
 					"cdc-vdd-pa",
 					"cdc-vdda-cp";
 
-		qcom,cdc-on-demand-supplies = "cdc-vdd-mic-bias";
+		qcom,cdc-on-demand-supplies = "cdc-vdd-mic-bias",
+					"cdc-vdda18-l10",
+					"cdc-vdd-l1";
 
 		msm_digital_codec: msm-dig-codec {
 			compatible = "qcom,msm-digital-codec";

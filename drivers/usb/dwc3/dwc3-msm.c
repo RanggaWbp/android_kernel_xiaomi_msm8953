@@ -299,6 +299,7 @@ struct dwc3_msm {
 	struct notifier_block	dwc3_cpu_notifier;
 	struct notifier_block	usbdev_nb;
 	bool			hc_died;
+	bool			host_teardown_delayed;
 	/* for usb connector either type-C or microAB */
 	bool			type_c;
 	/* whether to vote for VBUS reg in host mode */
@@ -4765,6 +4766,26 @@ static void dwc3_otg_sm_work(struct work_struct *w)
 
 	case DRD_STATE_HOST:
 		if (test_bit(ID, &mdwc->inputs) || mdwc->hc_died) {
+			/*
+			 * When the cable is pulled, the OTG state machine tears
+			 * the host controller down immediately. On this platform
+			 * that races with usbcore's per-device disconnect: the
+			 * HCD is unregistered before the root hub can emit the
+			 * port-change event, so snd-usb-audio never unregisters
+			 * (audio loss + stuck jack). Give usbcore a short window
+			 * to finish the disconnect before we drop the host.
+			 */
+			if (!mdwc->hc_died && !mdwc->host_teardown_delayed) {
+				mdwc->host_teardown_delayed = true;
+				dev_dbg(mdwc->dev,
+					"host: defer teardown for clean disconnect\n");
+				queue_delayed_work(system_freezable_wq,
+						&mdwc->sm_work,
+						msecs_to_jiffies(250));
+				break;
+			}
+			mdwc->host_teardown_delayed = false;
+
 			dev_dbg(mdwc->dev, "id || hc_died\n");
 			dwc3_otg_start_host(mdwc, 0);
 			mdwc->drd_state = DRD_STATE_IDLE;

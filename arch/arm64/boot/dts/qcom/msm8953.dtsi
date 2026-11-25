@@ -1744,6 +1744,7 @@
 			interrupts = <0 140 0>;
 			usb-phy = <&qusb_phy>, <&ssphy>;
 			tx-fifo-resize;
+			dr_mode = "host";
 			snps,usb3-u1u2-disable;
 			snps,is-utmi-l1-suspend;
 			snps,usb2-l1-disable;

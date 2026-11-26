@@ -36,6 +36,7 @@
 #include <linux/uaccess.h>
 #include <linux/usb/ch9.h>
 #include <linux/usb/gadget.h>
+#include <linux/usb.h>
 #include <linux/usb/of.h>
 #include <linux/regulator/consumer.h>
 #include <linux/pm_wakeup.h>
@@ -299,7 +300,7 @@ struct dwc3_msm {
 	struct notifier_block	dwc3_cpu_notifier;
 	struct notifier_block	usbdev_nb;
 	bool			hc_died;
-	bool			host_teardown_delayed;
+	int			host_teardown_tries;
 	/* for usb connector either type-C or microAB */
 	bool			type_c;
 	/* whether to vote for VBUS reg in host mode */
@@ -4772,19 +4773,41 @@ static void dwc3_otg_sm_work(struct work_struct *w)
 			 * that races with usbcore's per-device disconnect: the
 			 * HCD is unregistered before the root hub can emit the
 			 * port-change event, so snd-usb-audio never unregisters
-			 * (audio loss + stuck jack). Give usbcore a short window
-			 * to finish the disconnect before we drop the host.
+			 * (audio loss + stuck jack). Wait for the root hub to
+			 * fully drain (no children left) before dropping the host,
+			 * up to a bound so we cannot wedge the state machine.
 			 */
-			if (!mdwc->hc_died && !mdwc->host_teardown_delayed) {
-				mdwc->host_teardown_delayed = true;
-				dev_dbg(mdwc->dev,
-					"host: defer teardown for clean disconnect\n");
-				queue_delayed_work(system_freezable_wq,
+			if (!mdwc->hc_died && dwc && dwc->xhci &&
+			    dwc->xhci->main_hcd &&
+			    dwc->xhci->main_hcd->self.root_hub &&
+			    mdwc->host_teardown_tries < 20) {
+				struct usb_device *rh =
+					dwc->xhci->main_hcd->self.root_hub;
+				struct usb_device *child;
+				int port1;
+				bool busy = false;
+
+				usb_hub_for_each_child(rh, port1, child) {
+					if (child) {
+						busy = true;
+						break;
+					}
+				}
+
+				if (busy) {
+					mdwc->host_teardown_tries++;
+					dev_dbg(mdwc->dev,
+						"host: %d child(ren) still attached, defer teardown (%d)\n",
+						rh->maxchild,
+						mdwc->host_teardown_tries);
+					queue_delayed_work(
+						system_freezable_wq,
 						&mdwc->sm_work,
-						msecs_to_jiffies(250));
-				break;
+						msecs_to_jiffies(50));
+					break;
+				}
 			}
-			mdwc->host_teardown_delayed = false;
+			mdwc->host_teardown_tries = 0;
 
 			dev_dbg(mdwc->dev, "id || hc_died\n");
 			dwc3_otg_start_host(mdwc, 0);

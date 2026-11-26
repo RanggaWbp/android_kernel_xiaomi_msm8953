@@ -4778,16 +4778,11 @@ static void dwc3_otg_sm_work(struct work_struct *w)
 			 * up to a bound so we cannot wedge the state machine.
 			 */
 			if (!mdwc->hc_died && dwc && dwc->xhci &&
-			    hcd_to_xhci(platform_get_drvdata(dwc->xhci)) &&
-			    hcd_to_xhci(platform_get_drvdata(dwc->xhci))
-				    ->main_hcd &&
-			    hcd_to_xhci(platform_get_drvdata(dwc->xhci))
-				    ->main_hcd->self.root_hub &&
+			    dwc->xhci->main_hcd &&
+			    dwc->xhci->main_hcd->self.root_hub &&
 			    mdwc->host_teardown_tries < 20) {
 				struct usb_device *rh =
-					hcd_to_xhci(platform_get_drvdata(
-						dwc->xhci))
-					->main_hcd->self.root_hub;
+					dwc->xhci->main_hcd->self.root_hub;
 				struct usb_device *child;
 				int port1;
 				bool busy = false;

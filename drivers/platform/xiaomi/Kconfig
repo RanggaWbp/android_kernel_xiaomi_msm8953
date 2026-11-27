@@ -24,7 +24,7 @@ config TISSOT_OC
 	bool "Tissot overclock build"
 	depends on MACH_XIAOMI_TISSOT
 	help
-	  Build the overclocked variant (GPU 700 MHz, CPU 2.208 GHz).
+	  Build the overclocked variant (GPU 825 MHz, CPU 2.208 GHz).
 
 config TISSOT_TREBLE
 	bool "Tissot treble build"

@@ -137,10 +137,10 @@ case "$variant" in
     ui_print " Mode   : Non-treble (legacy)";
     ;;
 esac;
-# OC here means GPU-only (700 MHz); CPU stays at the stock 2016 MHz.
+# OC here means GPU-only (825 MHz); CPU stays at the stock 2016 MHz.
 case "$variant" in
   oc*)
-    ui_print " Clocks : CPU 2016 · GPU 700 MHz";
+    ui_print " Clocks : CPU 2016 · GPU 825 MHz";
     ;;
   *)
     ui_print " Clocks : CPU 2016 · GPU 650 MHz";

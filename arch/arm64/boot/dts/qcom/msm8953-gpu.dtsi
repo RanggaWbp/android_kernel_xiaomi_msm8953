@@ -186,7 +186,7 @@
 			qcom,gpu-pwrlevel@0 {
 				reg = <0>;
 #ifdef CONFIG_TISSOT_OC
-				qcom,gpu-freq = <700000000>;
+			qcom,gpu-freq = <825000000>;
 #else
 				qcom,gpu-freq = <650000000>;
 #endif

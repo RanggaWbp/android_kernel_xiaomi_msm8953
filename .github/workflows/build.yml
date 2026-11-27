@@ -648,9 +648,9 @@ jobs:
             | Variant | GPU (Adreno 506) | Change |
             |---|---:|---|
             | stock | 650 MHz | — |
-            | OC | **700 MHz** | GPU +50 MHz (safe, sdm632 template) |
+            | OC | **825 MHz** | GPU +175 MHz (over-voltage, OC variant) |
             | treble | 650 MHz | system-as-root, vendor fstab enabled |
-            | OC treble | **700 MHz** | system-as-root + GPU +50 MHz |
+            | OC treble | **825 MHz** | system-as-root + GPU +175 MHz |
 
             CPU 2016 MHz identical across all four variants (2.208 MHz over-volts low-bin units and boot-loops). OC raises only the GPU behind `CONFIG_TISSOT_OC`; treble only changes the fstab (vendor enabled, system dropped) behind `CONFIG_TISSOT_TREBLE`.
 

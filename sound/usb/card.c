@@ -370,11 +370,6 @@ static int snd_usb_create_streams(struct snd_usb_audio *chip, int ctrlif)
 		struct usb_interface_assoc_descriptor *assoc =
 						usb_iface->intf_assoc;
 		if (!assoc) {
-			/*
-			 * Firmware writers cannot count to three.  So to find
-			 * the IAD on the NuForce UDH-100, also check the next
-			 * interface.
-			 */
 			struct usb_interface *iface =
 				usb_ifnum_to_if(dev, ctrlif + 1);
 			if (iface &&
@@ -385,9 +380,27 @@ static int snd_usb_create_streams(struct snd_usb_audio *chip, int ctrlif)
 		}
 
 		if (!assoc) {
-			dev_err(&dev->dev, "Audio class V%d interfaces need an interface association\n",
-					protocol);
-			return -EINVAL;
+			int idx;
+
+			/*
+			 * Some UAC2 devices (e.g. many low-cost DACs) omit the
+			 * Interface Association descriptor.  Enumerate streaming
+			 * interfaces directly as a fallback.
+			 */
+			for (idx = 0; idx < 16; idx++) {
+				struct usb_interface *a =
+					usb_ifnum_to_if(dev, ctrlif + 1 + idx);
+				struct usb_interface_descriptor *d;
+
+				if (!a || !a->num_altsetting)
+					break;
+				d = get_iface_desc(&a->altsetting[0]);
+				if (d->bInterfaceClass == USB_CLASS_AUDIO &&
+				    d->bInterfaceSubClass == USB_SUBCLASS_AUDIOSTREAMING)
+					snd_usb_create_stream(chip, ctrlif,
+						d->bInterfaceNumber);
+			}
+			break;
 		}
 
 		for (i = 0; i < assoc->bInterfaceCount; i++) {

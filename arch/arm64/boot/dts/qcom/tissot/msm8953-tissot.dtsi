@@ -122,7 +122,6 @@
 
 	usb3: ssusb@7000000{
 		qcom,detect-dpdm-floating;
-		qcom,disable-host-mode-pm;
 		extcon = <&qpnp_smbcharger>;
 	};
 

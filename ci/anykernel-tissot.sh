@@ -139,7 +139,7 @@ case "$variant" in
 esac;
 # OC here means GPU-only (825 MHz); CPU stays at the stock 2016 MHz.
 case "$variant" in
-  oc*)
+  [Oo][Cc]*)
     ui_print " Clocks : CPU 2016 · GPU 825 MHz";
     ;;
   *)

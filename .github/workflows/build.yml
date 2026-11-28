@@ -1,8 +1,6 @@
 name: tissot-BakaSU-SUSFS
 
 on:
-  push:
-    branches: [BakaSU-susfs]
   workflow_dispatch:
 
 permissions:
